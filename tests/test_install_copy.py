@@ -23,8 +23,8 @@ class CopyInstallationTests(unittest.TestCase):
         self.home = self.user/'Library/Application Support/DungeonsCrossOver'
         self.bottle = self.user/'Library/Application Support/CrossOver/Bottles/Test'
         self.source = Path(self.temp.name)/'source'
-        for name in ('build/keychain','build/signin-ui.exe','build/xgameruntime.dll','build/XCurl.dll',
-                     'helper/bridge.py','helper/diagnostics.py', 'helper/freeze_capture.py','helper/localization.py','helper/internal_errors.py','helper/error_codes.json',
+        for name in ('build/keychain','build/signin-ui.exe','build/find-target.exe','build/identity-baseline.exe','build/identity-context.exe','build/xgameruntime.dll','build/XCurl.dll',
+                     'helper/bridge.py','helper/diagnostics.py', 'helper/freeze_capture.py','helper/runtime_capture.py','helper/bounded_capture.py','helper/capture_selected.py','helper/localization.py','helper/internal_errors.py','helper/error_codes.json',
                      'helper/session_watch.py','scripts/game_process.py','scripts/crossover.py'):
             file = self.source/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(b'synthetic build fixture')
         env = self.home/'python/bin/python';env.parent.mkdir(parents=True);env.write_bytes(b'not executed')

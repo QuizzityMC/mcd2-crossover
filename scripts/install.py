@@ -17,7 +17,7 @@ import diagnostics
 import internal_errors
 ERROR_STAGE = "validation"
 HOME = Path.home()/'Library/Application Support/DungeonsCrossOver'
-VERSION = '0.1.8.1'
+VERSION = '0.1.8.2'
 from crossover import crossover_app
 HASHES = {
     'xgameruntime-native.dll':'815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59',
@@ -93,7 +93,7 @@ def main():
         backup=HOME/'backups'/str(time.time_ns());backup.mkdir(parents=True,mode=0o700)
         # Keep the previous helper/settings too, before updating them. Credentials
         # are not exported into the backup or release.
-        for relative in ('runtime/keychain','runtime/signin-ui.exe','runtime/bridge.py','runtime/diagnostics.py','runtime/freeze_capture.py','runtime/internal_errors.py','runtime/error_codes.json','runtime/localization.py','runtime/session_watch.py','runtime/game_process.py','runtime/crossover.py','settings.json','installation.json'):
+        for relative in ('runtime/keychain','runtime/signin-ui.exe','runtime/bridge.py','runtime/diagnostics.py','runtime/freeze_capture.py','runtime/runtime_capture.py','runtime/bounded_capture.py','runtime/capture_selected.py','runtime/find-target.exe','runtime/identity-baseline.exe','runtime/identity-context.exe','runtime/internal_errors.py','runtime/error_codes.json','runtime/localization.py','runtime/session_watch.py','runtime/game_process.py','runtime/crossover.py','settings.json','installation.json'):
             previous=HOME/relative
             if previous.is_file():
                 dest=backup/'helper'/relative;dest.parent.mkdir(parents=True,exist_ok=True)
@@ -122,14 +122,15 @@ def main():
     for name,data in dependencies.items():
         if digest(data)!=HASHES[name]:raise RuntimeError('dependency checksum mismatch: '+name)
     ERROR_STAGE = 'files'
-    for name in ('keychain','signin-ui.exe'):
+    for name in ('keychain','signin-ui.exe','find-target.exe','identity-baseline.exe','identity-context.exe'):
         write(runtime/name,(ROOT/'build'/name).read_bytes(),True)
     write(runtime/'bridge.py',(ROOT/'helper/bridge.py').read_bytes())
     write(runtime/'session_watch.py',(ROOT/'helper/session_watch.py').read_bytes())
     write(runtime/'crossover.py',(ROOT/'scripts/crossover.py').read_bytes())
     write(runtime/'game_process.py',(ROOT/'scripts/game_process.py').read_bytes())
     write(runtime/'diagnostics.py',(ROOT/'helper/diagnostics.py').read_bytes())
-    write(runtime/'freeze_capture.py',(ROOT/'helper/freeze_capture.py').read_bytes())
+    for name in ('freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py'):
+        write(runtime/name,(ROOT/'helper'/name).read_bytes())
     for name in ('internal_errors.py','error_codes.json'):
         write(runtime/name,(ROOT/'helper'/name).read_bytes())
     write(runtime/'localization.py',(ROOT/'helper/localization.py').read_bytes())

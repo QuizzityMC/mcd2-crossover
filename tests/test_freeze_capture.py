@@ -30,6 +30,7 @@ secret@example.com /Users/PrivatePerson/keychain
 
 class FreezeTests(unittest.TestCase):
  def setUp(self):
+  mock=patch("runtime_capture.capture",return_value={"status":"captured"});mock.start();self.addCleanup(mock.stop)
   self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name);self.home=self.root/'home';self.home.mkdir()
   self.game=self.root/'game';self.binary=self.game/'Dungeons/Binaries/Win64';self.binary.mkdir(parents=True)
   (self.binary/'Dungeons-Win64-Shipping.exe').write_bytes(b'fixture')
@@ -63,7 +64,7 @@ class FreezeTests(unittest.TestCase):
    self.assertEqual(report['rss_kib'],102400);self.assertEqual(report['cpu_tenths'],143)
    self.assertIn(b'__psynch_cvwait',allbytes)
    for secret in (b'PrivatePerson',b'SecretAccountName',b'account@example.com',b'/Users/',b'keychain'): self.assertNotIn(secret,z.read('freeze.json'))
-  self.assertEqual([a[0] for a in self.calls],['/bin/ps','/bin/ps','/usr/bin/sample','/bin/ps'])
+  self.assertEqual([a[0] for a in self.calls],['/bin/ps','/bin/ps','/bin/ps','/usr/bin/sample','/bin/ps'])
  def test_absent_ambiguous_and_wrong_game_are_not_sampled(self):
   for report,why in [(ProcessReport(), 'game_not_running'),(ProcessReport((42,43)), 'ambiguous_game'),(ProcessReport((42,),(),True),'ambiguous_game')]:
    self.calls.clear();r=f.capture(self.home,inspect=lambda *_:report,run=self.runner)

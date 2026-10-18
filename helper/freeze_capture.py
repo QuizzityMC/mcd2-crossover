@@ -1,4 +1,4 @@
-"""On-demand, bounded samples of the verified selected game; no network or signals.
+"""On-demand, bounded samples of the verified selected game; no debugger attachment or explicit game suspend/resume.
 
 Raw macOS sample metadata stays in a private temporary directory. Only call-graph
 frames, numeric resource values and fixed outcomes survive into the support ZIP.
@@ -146,8 +146,10 @@ def safe_report(doc):
     return result
 
 
-def capture(home, *, inspect=None, run=None):
+def capture(home, *, inspect=None, run=None, windows_capture=None):
     import diagnostics as d
+    import runtime_capture as runtime
+    windows_capture = windows_capture or runtime.capture
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
     from game_process import inspect_processes
     inspect = inspect or (lambda executable,bottle: inspect_processes(executable,bottle,budget_seconds=5))
@@ -162,9 +164,13 @@ def capture(home, *, inspect=None, run=None):
         d._write_json(home/'freeze.json', safe_report(report))
         d.record(home, 'freeze_capture', {'outcome': 'success' if outcome=='captured' else 'failed'})
         return {'ok': outcome=='captured', 'capture_outcome': outcome, 'available': True,
-                'active': d.enabled(home), 'frames': len(report['frames']),
+                'active': d.enabled(home),
+                'windows_outcome': report.get('windows_outcome','not_attempted'), 'frames': len(report['frames']),
                 'truncated': report.get('truncated', False),
                 **({'sample_exit_code': report['sample_exit_code']} if 'sample_exit_code' in report else {})}
+    # Invalidate both previous captures before starting a new attempt.
+    d._write_json(home/'freeze.json', safe_report(report))
+    d._write_json(home/'freeze-runtime.json', {'schema':1,'status':'capture_failed','timestamp_ms':stamp})
     settings = d._read_json(home/'settings.json')
     if not isinstance(settings,dict) or not isinstance(settings.get('bottle'),str) or not isinstance(settings.get('game'),str):
         return finish('settings_missing')
@@ -188,6 +194,12 @@ def capture(home, *, inspect=None, run=None):
             return p.stdout.strip() if p.returncode==0 else ''
         before = birth()
         if not before: return finish('process_changed')
+        try:
+            windows = windows_capture(home,executable,bottle)
+            report['windows_outcome'] = windows.get('status','capture_failed')
+        except (OSError,ValueError,RuntimeError,subprocess.SubprocessError):
+            report['windows_outcome'] = 'capture_failed'
+        if birth()!=before: return finish('process_changed')
         p=run(['/bin/ps','-p',str(pid),'-o','%cpu=,rss='],capture_output=True,text=True,timeout=3,check=False)
         values=p.stdout.split()
         if p.returncode==0 and len(values)==2:

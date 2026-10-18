@@ -92,12 +92,18 @@ def refresh_runtime():
     pending = HOME/'runtime-restart-pending'
     with open(HOME/'runtime-update.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        for name in ('error_codes.json','internal_errors.py','diagnostics.py','freeze_capture.py','localization.py','session_watch.py','bridge.py'):
+        for name in ('error_codes.json','internal_errors.py','diagnostics.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py','bridge.py'):
             source = ROOT/name; dest = runtime/name
             data = source.read_bytes()
             if not dest.exists() or dest.read_bytes() != data:
                 if dest.exists(): atomic(runtime/(name+'.previous'),dest.read_bytes())
                 atomic(dest,data); changed = True
+        for name in ('find-target.exe','identity-baseline.exe','identity-context.exe'):
+            source = ROOT.parent/'build'/name
+            dest = runtime/name
+            data = source.read_bytes()
+            if not dest.exists() or dest.read_bytes() != data:
+                atomic(dest,data)
         for name in ('crossover.py','game_process.py'):
             source = ROOT.parent/'scripts'/name
             if source.exists(): atomic(runtime/name,source.read_bytes())

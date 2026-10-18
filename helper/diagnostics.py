@@ -2,7 +2,7 @@
 """Short, opt-in recordings and a deliberately limited support ZIP.
 
 Only this module's known status fields and the adapter's known diagnostic
-formats are exported. Session files, settings, raw server replies, game files
+formats are exported. Session files, settings, raw server replies, saved games
 and Keychain data are never copied into the archive.
 """
 import argparse
@@ -194,7 +194,7 @@ def enabled(home=HOME, now=None):
 def start(home=HOME, now=None):
     home = _private_home(home)
     # Reject unexpected file types before clearing any previous recording.
-    for name in (*LOG_FILES, FLAG, STATE, 'freeze.json'):
+    for name in (*LOG_FILES, FLAG, STATE, 'freeze.json', 'freeze-runtime.json'):
         path = home / name
         if (path.exists() or path.is_symlink()) and not _regular(path):
             raise ValueError('unsafe diagnostic file')
@@ -204,7 +204,7 @@ def start(home=HOME, now=None):
     stamp = int(time.time() if now is None else now)
     if stamp <= 0:
         raise ValueError('invalid recording time')
-    previous_logs = [home / name for name in (*LOG_FILES, 'freeze.json') if _regular(home / name)]
+    previous_logs = [home / name for name in (*LOG_FILES, 'freeze.json', 'freeze-runtime.json') if _regular(home / name)]
     (home / FLAG).unlink(missing_ok=True)
     if previous_logs:
         recordings.mkdir(mode=0o700, exist_ok=True)
@@ -272,7 +272,12 @@ def status(home=HOME, now=None):
             if _regular(path):
                 files.append({'name': name, 'bytes': min(path.stat().st_size, MAX_LOG_BYTES),
                               'capped': path.stat().st_size > MAX_LOG_BYTES})
-    result = {'ok': True, 'active': active, 'available': bool(files) or _freeze_report(home) is not None or _internal_error_report(home) is not None,
+    game_available = False
+    if not home.is_symlink():
+        _, game_status = _game_log_entries(_read_json(home / 'settings.json'), metadata_only=True)
+        game_available = game_status['status'] == 'available'
+    from runtime_capture import saved_report
+    result = {'ok': True, 'active': active, 'available': saved_report(home) is not None or game_available or bool(files) or _freeze_report(home) is not None or _internal_error_report(home) is not None,
               'seconds_remaining': max(0, int(state.get('expires', 0) - now)) if active else 0,
               'expires': state.get('expires'), 'started': state.get('started'), 'logfiles': files}
     if state and _integer(stopped, state['started'], state['expires']):
@@ -514,6 +519,96 @@ def _log_snapshot(path):
     return data, capped
 
 
+
+def _sanitize_game_log(data):
+    """Keep diagnostic text, omitting identity/authentication rows and paths."""
+    rows, omitted = [], 0
+    sensitive = re.compile(r'(?i)(authorization|bearer|cookie|token|password|secret|'
+                           r'gamertag|username|user\s*name|loginid|account|xuid|'
+                           r'playfabid|entityid|machineid|command\s*line|user\s*:|computer\s*name)')
+    for line in data.decode('utf-8', errors='replace').splitlines():
+        if len(line.encode('utf-8')) > MAX_LINE_BYTES or sensitive.search(line):
+            omitted += 1
+            continue
+        line = re.sub(r'https?://[^\s<>"\x27]+', '[URL]', line, flags=re.I)
+        line = re.sub(r'\b[^\s@]+@[^\s@]+\.[^\s@]+', '[EMAIL]', line)
+        line = re.sub(r'(?i)\b[A-Z]:[\\/][^\r\n]*', '[PATH]', line)
+        line = re.sub(r'(?<![\w.])/(?:Users|home|private|Volumes|Applications|tmp)/[^\r\n]*', '[PATH]', line)
+        line = re.sub(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b', '[ID]', line)
+        line = re.sub(r'\b\d{12,}\b', '[ID]', line)
+        line = re.sub(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', '[IP]', line)
+        rows.append(line)
+    return ('\n'.join(rows) + ('\n' if rows else '')).encode(), omitted
+
+
+def _game_log_entries(settings, metadata_only=False):
+    report = {'status': 'not_selected', 'files': [], 'skipped_files': 0}
+    entries = {}
+    bottle = settings.get('bottle')
+    if not isinstance(bottle, str) or not bottle or bottle in ('.', '..') or '/' in bottle or '\\' in bottle:
+        return entries, report
+    root = Path.home() / 'Library/Application Support/CrossOver/Bottles' / bottle
+    try:
+        root = root.resolve(strict=True)
+        users = root / 'drive_c/users'
+        # Permit an intentionally relocated bottle, but not links below it.
+        def plain(path):
+            relative = path.relative_to(root)
+            cursor = root
+            for part in relative.parts:
+                cursor /= part
+                if cursor.is_symlink():
+                    return False
+            return True
+        if not plain(users) or not users.is_dir():
+            report['status'] = 'missing'
+            return entries, report
+        candidates = []
+        with os.scandir(users) as profiles:
+            profile_paths = []
+            for index, profile in enumerate(profiles):
+                if index >= 16:
+                    report['profiles_limited'] = True
+                    break
+                if profile.is_dir(follow_symlinks=False):
+                    profile_paths.append(Path(profile.path))
+        for profile in sorted(profile_paths):
+            folder = profile / 'AppData/Local/Dungeons2/Saved/Logs'
+            if not plain(folder) or not folder.is_dir():
+                continue
+            # Bound directory enumeration as well as file content reads.
+            with os.scandir(folder) as items:
+                for index, item in enumerate(items):
+                    if index >= 256:
+                        report['directory_limited'] = True
+                        break
+                    if item.name.lower().endswith('.log') and item.is_file(follow_symlinks=False):
+                        candidates.append((item.stat(follow_symlinks=False).st_mtime, Path(item.path)))
+        if metadata_only:
+            report['status'] = 'available' if candidates else 'missing'
+            return entries, report
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        report['skipped_files'] = max(0, len(candidates) - 4)
+        for modified, path in candidates[:4]:
+            try:
+                snapshot = _log_snapshot(path)
+                if snapshot is None:
+                    report['skipped_files'] += 1
+                    continue
+                raw, capped = snapshot
+                safe, omitted = _sanitize_game_log(raw)
+                name = 'game-logs/log-%02d.log' % (len(entries) + 1)
+                entries[name] = safe
+                report['files'].append({'archive_name': name, 'kind': 'cef' if path.name.lower() == 'cef3.log' else 'game',
+                                        'modified_unix_seconds': int(modified), 'input_capped': capped,
+                                        'omitted_rows': omitted, 'exported_bytes': len(safe)})
+            except OSError:
+                report['skipped_files'] += 1
+        report['status'] = 'included' if entries else 'missing'
+    except OSError:
+        report['status'] = 'unavailable'
+    return entries, report
+
 def export(home, output, now=None):
     home, output = Path(home), Path(output)
     if output.suffix.lower() != '.zip' or output.is_symlink():
@@ -537,9 +632,15 @@ def export(home, output, now=None):
     error_report = _internal_error_report(home)
     if error_report:
         entries['internal-error.json'] = (json.dumps(error_report,indent=2)+'\n').encode()
+    from runtime_capture import saved_report
+    windows = saved_report(home)
+    if windows: entries['freeze-runtime.json'] = (json.dumps(windows,indent=2)+'\n').encode()
     freeze = _freeze_report(home)
     if freeze: entries['freeze.json'] = (json.dumps(freeze,indent=2)+'\n').encode()
-    if not reports and 'internal-error.json' not in entries and not freeze:
+    settings = _read_json(home / 'settings.json')
+    game_entries, game_report = _game_log_entries(settings)
+    entries.update(game_entries)
+    if not reports and 'internal-error.json' not in entries and not freeze and not windows and not game_entries:
         raise NoRecordingError('no recording available')
     settings = _read_json(home / 'settings.json')
     safe_settings = _app_fields({'store': settings.get('store'), 'app_version': settings.get('app_version')})
@@ -549,18 +650,22 @@ def export(home, output, now=None):
         **safe_settings,
         'recording': {key: state[key] for key in ('started', 'expires', 'stopped') if state.get(key) is not None},
         'logs': reports,
-        'privacy': 'Only selected status codes, request framing, timestamps, app events and sanitized game stack frames are included. '
-                   'Unknown rows and server text are omitted. No tokens, passwords, account IDs, '
-                   'user paths, session files, settings files, Keychain data or game files are included.',
+        'game_logs': game_report,
+        'privacy': 'Helper logs contain allowlisted status fields. Game logs contain bounded diagnostic text with sensitive rows omitted and paths, URLs, emails and identifiers filtered. Review before sharing. Saved games, browser caches, session files, settings and Keychain data are not copied.',
     }
     entries['manifest.json'] = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()
     entries['READ ME.txt'] = (
         'MCD2 Crossover troubleshooting recording\n\n'
         'Recording stops when this ZIP is saved. The adapters stop recording after one hour even if '
         'the app is closed. Only known status fields are exported; unknown log rows are omitted.\n'
-        'No Microsoft credentials, account IDs, paths, game files or saved games are included.\n'
+        'Game logs are collected from the selected bottle, independently of Start Recording.\n'
+        'game-logs/ contains up to four recent log tails (256 KiB per input file), with sensitive rows omitted and paths redacted.\n'
+        'Review diagnostic text before sharing. Saved games and browser caches are never copied.\n'
+        'freeze-runtime.json contains per-stage Windows thread counts, debugger state, stacks and bottle process roles. Failures and partial results are retained.\n'
+        'Host process entries are runtime candidates across the Mac; only the Windows process list is scoped to the selected bottle.\n'
+        'These snapshots do not record which process previously requested a suspension.\n'
         'freeze.json contains an on-demand game sample and resource snapshot, when captured.\n'
-        'Times are Unix milliseconds (UTC). Legacy rows may have no timestamp.\n'
+        'Helper times are Unix milliseconds (UTC). Game log timestamps retain their original format; their timezone may be unknown.\n'
         'Capture before quitting the frozen game. Add what happened when opening an issue.\n'
     ).encode()
     temp = output.with_name(output.name + '.' + uuid.uuid4().hex + '.tmp')

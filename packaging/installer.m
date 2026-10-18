@@ -759,7 +759,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     self.recordStatus = label(@"",13,NSFontWeightRegular); self.recordStatus.accessibilityLabel = L(@"Log recording status"); [stack addArrangedSubview:self.recordStatus];
     [stack addArrangedSubview:label(L(@"Start Recording before playing. If the game freezes, leave it open and capture diagnostics before quitting."),13,NSFontWeightRegular)];
     [stack addArrangedSubview:label(L(@"After updating, use Repair Setup once with the game closed to enable timestamped game diagnostics."),12,NSFontWeightRegular)];
-    [stack addArrangedSubview:label(L(@"Capture takes a short sample of the selected game and its memory usage. It leaves the game running and does not upload anything."),12,NSFontWeightRegular)];
+    [stack addArrangedSubview:label(L(@"Capture takes a short sample of the selected game and its memory usage. Windows stack collection may briefly interrupt threads. It leaves the game running and does not upload anything."),12,NSFontWeightRegular)];
     self.captureButton = [NSButton buttonWithTitle:L(@"Game Froze — Capture Diagnostics") target:self action:@selector(captureFreeze:)];
     [stack addArrangedSubview:self.captureButton];
     self.recordButton = [NSButton buttonWithTitle:L(@"Start Recording") target:self action:@selector(toggleRecording:)];
@@ -820,11 +820,15 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     if (self.diagnosticsBusy) return;
     if (!self.diagnosticPanel) { self.captureMessage = YES; [self openTroubleshooting:nil]; }
     self.captureMessage = YES; self.logsSaved = NO;
-    self.recordStatus.stringValue = L(@"Capturing the game’s state… Leave it open. Allow up to one minute for macOS to finish the sample.");
+    self.recordStatus.stringValue = L(@"Capturing the game’s state… Leave it open. Allow up to two minutes for Windows diagnostics and the macOS sample.");
     [self diagnostics:@"capture" output:nil completion:^(NSDictionary *state, BOOL ok) {
         [self updateRecording:state];
         NSString *outcome = state[@"capture_outcome"];
         if (ok && [outcome isEqualToString:@"captured"]) {
+            if (![state[@"windows_outcome"] isEqualToString:@"captured"]) {
+                self.recordStatus.stringValue = L(@"Game sample saved. Some Windows diagnostics could not finish; partial results and capture errors are included. Click Save Logs before quitting the game.");
+                return;
+            }
             self.recordStatus.stringValue = [state[@"truncated"] boolValue] ? L(@"Game sample captured with some frames omitted to keep the report bounded. Click Save Logs before quitting the game.") : L(@"Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.");
         } else {
             NSInteger code = [outcome isEqualToString:@"game_not_running"] ? 5003 : [outcome isEqualToString:@"ambiguous_game"] || [outcome isEqualToString:@"process_changed"] ? 5004 : 5005;

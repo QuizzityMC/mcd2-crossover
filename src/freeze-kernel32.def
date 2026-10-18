@@ -1,0 +1,24 @@
+LIBRARY kernel32.dll
+EXPORTS
+GetStdHandle
+WriteFile
+ExitProcess
+GetCommandLineA
+OpenProcess
+OpenThread
+CloseHandle
+CheckRemoteDebuggerPresent
+GetLastError
+CreateToolhelp32Snapshot
+Thread32First
+Thread32Next
+GetThreadContext
+Module32First
+Module32Next
+GetEnvironmentVariableW
+QueryFullProcessImageNameW
+CreateFileW
+GetFileInformationByHandle
+GetProcessTimes
+Process32FirstW
+Process32NextW

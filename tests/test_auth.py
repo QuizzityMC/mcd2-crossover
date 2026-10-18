@@ -81,9 +81,12 @@ class AuthTests(unittest.TestCase):
         scripts=resources/'scripts'; scripts.mkdir()
         runtime=self.home/'runtime'; runtime.mkdir()
         source=Path(__file__).parents[1]
-        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','freeze_capture.py','localization.py','session_watch.py')
+        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py')
         for name in names: shutil.copyfile(source/'helper'/name,root/name)
         for name in ('crossover.py','game_process.py'): shutil.copyfile(source/'scripts'/name,scripts/name)
+        build=resources/'build'; build.mkdir()
+        probes=('find-target.exe','identity-baseline.exe','identity-context.exe')
+        for name in probes: (build/name).write_bytes(b'synthetic observer')
         (runtime/'bridge.py').write_text('# previous runtime')
         with patch.object(bridge,'ROOT',root), patch('session_watch.rows',return_value={}), patch.object(bridge.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as external:
             bridge.refresh_runtime()
@@ -91,6 +94,7 @@ class AuthTests(unittest.TestCase):
             bridge.refresh_runtime()
             external.assert_called_once()
         for name in names: self.assertEqual((runtime/name).read_bytes(),(root/name).read_bytes())
+        for name in probes: self.assertEqual((runtime/name).read_bytes(),(build/name).read_bytes())
         self.assertEqual((runtime/'bridge.py.previous').read_text(),'# previous runtime')
         # Import the deployed helper in isolation, with no source-tree dependencies.
         subprocess.run([sys.executable,'-I','-B','-c','import sys;sys.path.insert(0,sys.argv[1]);import bridge',str(runtime)],check=True)

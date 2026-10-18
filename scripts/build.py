@@ -27,6 +27,12 @@ obj('curl.c','curl.obj')
 run([link,'/dll','/entry:DllMain','/nodefaultlib','/def:'+str(SRC/'curl.def'),'/out:'+str(OUT/'XCurl.dll'),OUT/'curl.obj',OUT/'curl-kernel32.lib',OUT/'stack-probe.obj'])
 obj('signin-ui.c','signin-ui.obj')
 run([link,'/subsystem:windows','/entry:mainCRTStartup','/nodefaultlib','/out:'+str(OUT/'signin-ui.exe'),OUT/'signin-ui.obj',OUT/'ui-kernel32.lib',OUT/'ui-user32.lib',OUT/'ui-gdi32.lib',OUT/'stack-probe.obj'])
+# Small Windows observers: no SDK or proprietary binaries are required.
+for n in ('kernel32','ntdll','dbghelp'):
+    run([link,'/lib','/machine:x64','/def:'+str(SRC/('freeze-'+n+'.def')),'/out:'+str(OUT/('freeze-'+n+'.lib'))])
+for source,name,flags in [('find_target.c','find-target',[]),('freeze_probe.c','identity-baseline',[]),('freeze_probe.c','identity-context',['-DCAPTURE_CONTEXT'])]:
+    run([clang,'--target=x86_64-pc-windows-msvc','-O1','-fno-stack-protector','-fno-builtin',*flags,'-c',SRC/source,'-o',OUT/(name+'.obj')])
+    run([link,'/entry:mainCRTStartup','/subsystem:console','/nodefaultlib','/out:'+str(OUT/(name+'.exe')),OUT/(name+'.obj'),OUT/'freeze-kernel32.lib',OUT/'freeze-ntdll.lib',OUT/'freeze-dbghelp.lib'])
 run([clang,'-O2','-framework','Foundation','-framework','Security','-framework','LocalAuthentication',ROOT/'helper/keychain.m','-o',OUT/'keychain'])
 run(['/usr/bin/codesign','--force','--sign','-',OUT/'keychain'])
 run([clang,'-arch','arm64','-mmacosx-version-min=13.0','-fobjc-arc','-O2','-framework','Cocoa',ROOT/'helper/launcher.m','-o',OUT/'launcher'])
