@@ -81,7 +81,7 @@ class AuthTests(unittest.TestCase):
         scripts=resources/'scripts'; scripts.mkdir()
         runtime=self.home/'runtime'; runtime.mkdir()
         source=Path(__file__).parents[1]
-        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','localization.py','session_watch.py')
+        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','freeze_capture.py','localization.py','session_watch.py')
         for name in names: shutil.copyfile(source/'helper'/name,root/name)
         for name in ('crossover.py','game_process.py'): shutil.copyfile(source/'scripts'/name,scripts/name)
         (runtime/'bridge.py').write_text('# previous runtime')
@@ -108,6 +108,7 @@ class AuthTests(unittest.TestCase):
         bridge.diagnostics.start(self.home)
         bridge.diagnostic('test',400,{'Token':secret,'refresh_token':secret,'error':'invalid_grant','XErr':123})
         row=json.loads((self.home/'auth.log').read_text())
+        self.assertIsInstance(row.pop('timestamp_ms'),int)
         self.assertEqual(row,{'step':'test','http_status':400,'oauth_error':'invalid_grant','xerr':123})
         self.assertNotIn(secret,(self.home/'auth.log').read_text())
     def test_cancelled_launch_keeps_session_and_does_not_start_steam(self):

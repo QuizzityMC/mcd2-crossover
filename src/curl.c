@@ -17,22 +17,36 @@ static void pathAppend(char*b,unsigned cap,const char*s){unsigned n=len(b);while
 static char trustedCA[2048];
 static void setupCA(void){if(trustedCA[0])return;DWORD n=GetModuleFileNameA(self,trustedCA,sizeof(trustedCA));if(!n||n>=sizeof(trustedCA)){trustedCA[0]=0;return;}while(n&&trustedCA[n-1]!='\\'&&trustedCA[n-1]!='/')n--;trustedCA[n]=0;pathAppend(trustedCA,sizeof(trustedCA),"curl-ca-bundle.crt");}
 static void* fn(const char*s){if(!module)module=LoadLibraryA("curl-compat.dll");return GetProcAddress(module,s);}
-static void logline(const char*s){if(!dcLogging())return;char path[2048]={0};if(!dcPath(path,sizeof(path),"http.log"))return;DWORD n=len(s),w;HANDLE h=CreateFileA(path,4,3,0,4,128,0);if(h!=(HANDLE)-1){WriteFile(h,s,n,&w,0);CloseHandle(h);}}
+static void logline(const char*s){if(!dcLogging())return;char path[2048]={0};if(!dcPath(path,sizeof(path),"http.log"))return;char line[4096]={0};unsigned prefix=dcLogPrefix(line);unsigned size=len(s);if(size>sizeof(line)-prefix-1)return;for(unsigned i=0;i<size;i++)line[prefix+i]=s[i];DWORD n=prefix+size,w;HANDLE h=CreateFileA(path,4,3,0,4,128,0);if(h!=(HANDLE)-1){WriteFile(h,line,n,&w,0);CloseHandle(h);}}
 static int append(char*b,int n,const char*s){while(*s&&n<490)b[n++]=*s++;return n;}
 static int number(char*b,int n,int v){char t[12];int k=0;if(v<0){b[n++]='-';v=-v;}do{t[k++]='0'+v%10;v/=10;}while(v&&k<11);while(k)b[n++]=t[--k];return n;}
 #include "framing.inc"
+static unsigned requestSequence;
+static void requestTiming(void*easy,int finished,int code,long status){
+ if(!dcLogging())return;
+ struct Trace*t=trace(easy,1);if(!t)return;
+ if(!finished){AcquireSRWLockExclusive(&tracelock);t->diagnosticId=++requestSequence;ReleaseSRWLockExclusive(&tracelock);t->diagnosticStart=GetTickCount64();}
+ if(!t->diagnosticId)return;
+ unsigned long long elapsed=finished?GetTickCount64()-t->diagnosticStart:0;
+ char b[512];int n=append(b,0,"request id=");n=number(b,n,(int)t->diagnosticId);
+ n=append(b,n,finished?" phase=completed elapsed_ms=":" phase=started elapsed_ms=");n=number(b,n,elapsed>86400000?86400000:(int)elapsed);
+ if(finished){n=append(b,n," curl=");n=number(b,n,code);n=append(b,n," http=");n=number(b,n,status);}
+ b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
+ if(finished)t->diagnosticId=0;
+}
+
 static void result(void*easy,int code){
  int(*get)(void*,int,...)=fn("curl_easy_getinfo");char*url=0;long status=0;
  get(easy,0x100001,&url);get(easy,0x200002,&status);
- traceResult(easy,status);restoreRequestSize(trace(easy,0));
+ requestTiming(easy,1,code,status);traceResult(easy,status);restoreRequestSize(trace(easy,0));
  char b[512];int n=append(b,0,"connection curl=");n=number(b,n,code);n=append(b,n," http=");n=number(b,n,status);n=append(b,n," host=");
  if(url){const char*p=url;while(*p&&*p!=':')p++;if(*p==':'&&p[1]=='/'&&p[2]=='/')p+=3;else p=url;int count=0;while(*p&&*p!='/'&&*p!='?'&&*p!='#'&&n<450&&count++<180)b[n++]=*p++;}
  b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
 }
 struct Msg{int type;void*easy;union{void*p;int code;}data;};
 __declspec(dllexport) struct Msg* curl_multi_info_read(void*m,int*remaining){struct Msg*(*call)(void*,int*)=fn("curl_multi_info_read");struct Msg*r=call(m,remaining);if(r&&r->type==1)result(r->easy,r->data.code);return r;}
-__declspec(dllexport) int curl_easy_perform(void*e){int(*call)(void*)=fn("curl_easy_perform");applyRequestSize(e);int r=call(e);result(e,r);return r;}
-__declspec(dllexport) int curl_multi_add_handle(void*m,void*e){int(*call)(void*,void*)=fn("curl_multi_add_handle");applyRequestSize(e);int r=call(m,e);if(r)restoreRequestSize(trace(e,0));return r;}
+__declspec(dllexport) int curl_easy_perform(void*e){int(*call)(void*)=fn("curl_easy_perform");applyRequestSize(e);requestTiming(e,0,0,0);int r=call(e);result(e,r);return r;}
+__declspec(dllexport) int curl_multi_add_handle(void*m,void*e){int(*call)(void*,void*)=fn("curl_multi_add_handle");applyRequestSize(e);requestTiming(e,0,0,0);int r=call(m,e);if(r){requestTiming(e,1,r,0);restoreRequestSize(trace(e,0));}return r;}
 __declspec(dllexport) int curl_global_init(long flags){int(*call)(long)=fn("curl_global_init");logline("diagnostic loaded\r\n");return call(flags);}
 __declspec(dllexport) int curl_easy_setopt(void*e,int opt,void*value){
  int(*call)(void*,int,...)=fn("curl_easy_setopt");

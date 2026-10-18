@@ -150,7 +150,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertFalse(diagnostics.record(self.home, 'secret-token', fields, self.now))
         row = json.loads((self.home / 'app.log').read_text().splitlines()[-1])
         self.assertEqual(row, {'event': 'launch', 'outcome': 'failed', 'store': 'launcher',
-                              'app_version': '0.1.1', 'error_code': 63, 'elapsed_seconds': 8})
+                              'app_version': '0.1.1', 'error_code': 63, 'elapsed_seconds': 8, 'timestamp_ms': self.now*1000})
         for secret in ('secret-token', 'account@example.com', 'Alice', 'private-refresh'):
             self.assertNotIn(secret, (self.home / 'app.log').read_text())
 

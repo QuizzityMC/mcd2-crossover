@@ -45,7 +45,7 @@ static int loadAuth(void){AcquireSRWLockExclusive(&credLock);int r=readAuth();la
 // to the native helper, which renews through its own Keychain-backed OAuth flow.
 static U64 requestLock,requestCounter;
 static int forceRenew(void){
- AcquireSRWLockExclusive(&requestLock);U64 serial=++requestCounter;ReleaseSRWLockExclusive(&requestLock);
+ U64 diagnosticStart=GetTickCount64();loghr("ForceRefresh started",0);AcquireSRWLockExclusive(&requestLock);U64 serial=++requestCounter;ReleaseSRWLockExclusive(&requestLock);
  U64 nonce=(GetTickCount64()<<24)^((U64)GetCurrentProcessId()<<8)^serial;
  char leaf[64]="refresh-",request[2048]={0},response[2048]={0};
  for(unsigned i=0;i<16;i++)leaf[8+i]="0123456789abcdef"[(nonce>>((15-i)*4))&15];
@@ -70,7 +70,7 @@ static int forceRenew(void){
    }
   }Sleep(50);
  }
- DeleteFileA(request);DeleteFileA(response);loghr("Keychain-backed ForceRefresh result",result);return result;
+ DeleteFileA(request);DeleteFileA(response);loghr("ForceRefresh elapsed milliseconds",(int)(GetTickCount64()-diagnosticStart));loghr("Keychain-backed ForceRefresh result",result);return result;
 }
 // XUser interface identifiers from the reviewed compatibility source; active calls tested against Microsoft thunks.
 struct Guid {unsigned a;unsigned short b,c;unsigned char d[8];};

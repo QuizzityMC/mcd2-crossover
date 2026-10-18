@@ -26,3 +26,5 @@ GetCurrentProcessId
 
 GetTickCount64
 GetSystemTimeAsFileTime
+
+GetCurrentThreadId

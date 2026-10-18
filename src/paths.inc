@@ -51,3 +51,10 @@ static int dcLogging(void){
  unsigned long long now=(ticks-116444736000000000ULL)/10000000;
  return started<=now+5&&expires>now;
 }
+
+/* UTC milliseconds and process/thread identity; no account or request content. */
+IMP DWORD GetCurrentThreadId(void);
+IMP DWORD GetCurrentProcessId(void);
+IMP unsigned long long GetTickCount64(void);
+static unsigned dcDecimal(char*b,unsigned n,unsigned long long v){char t[24];unsigned k=0;do{t[k++]='0'+v%10;v/=10;}while(v);while(k)b[n++]=t[--k];return n;}
+static unsigned dcLogPrefix(char*b){unsigned long long ft=0;GetSystemTimeAsFileTime(&ft);unsigned n=0;b[n++]='[';b[n++]='t';b[n++]='=';n=dcDecimal(b,n,(ft-116444736000000000ULL)/10000);b[n++]=' ';b[n++]='p';b[n++]='=';n=dcDecimal(b,n,GetCurrentProcessId());b[n++]=' ';b[n++]='t';b[n++]='h';b[n++]='=';n=dcDecimal(b,n,GetCurrentThreadId());b[n++]=']';b[n++]=' ';b[n]=0;return n;}

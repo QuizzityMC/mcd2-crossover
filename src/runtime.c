@@ -35,7 +35,7 @@ static void append(char*b,unsigned cap,const char*s){unsigned n=len(b);if(s)whil
 #include "paths.inc"
 static void loghr(const char*msg,int hr){
  if(!dcLogging())return;char logpath[2048]={0};if(!dcPath(logpath,sizeof(logpath),"runtime.log"))return;
- char line[256]={0};append(line,256,msg);append(line,256," 0x");unsigned n=len(line);
+ char line[512]={0};dcLogPrefix(line);append(line,512,msg);append(line,512," 0x");unsigned n=len(line);
  for(int i=7;i>=0;i--)line[n++]="0123456789ABCDEF"[((unsigned)hr>>(i*4))&15];
  line[n++]='\r';line[n++]='\n';
  H f=CreateFileA(logpath,4,3,0,4,128,0);if(f!=(H)-1){DWORD w;WriteFile(f,line,n,&w,0);CloseHandle(f);}

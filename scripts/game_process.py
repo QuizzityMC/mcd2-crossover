@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import subprocess
+import time
 
 SELECTED = 'MCD2_RUNNING_SELECTED'
 SHARED = 'MCD2_RUNNING_SHARED_STEAM'
@@ -140,10 +141,11 @@ def _open_files(text, pid):
     return paths or None
 
 
-def inspect_processes(executable, bottle, *, shared_steam=False, run=None):
+def inspect_processes(executable, bottle, *, shared_steam=False, run=None, budget_seconds=None):
     """Return confirmed identities and uncertainty, never guessed positives."""
     run = subprocess.run if run is None else run
     executable, bottle = Path(executable).resolve(), Path(bottle).resolve()
+    deadline = time.monotonic() + budget_seconds if budget_seconds is not None else None
     selected, shared, uncertain = [], [], False
     try:
         result = run(['/bin/ps', '-axo', 'pid=,comm='], capture_output=True, text=True,
@@ -154,9 +156,11 @@ def inspect_processes(executable, bottle, *, shared_steam=False, run=None):
     except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
         return ProcessReport(ambiguous=True)
     for pid, _command in candidates:
+        remaining = deadline-time.monotonic() if deadline is not None else 2
+        if remaining <= 0: return ProcessReport(tuple(selected),tuple(shared),True)
         try:
             result = run(['/usr/sbin/lsof', '-a', '-p', str(pid), '-Fpn'],
-                         capture_output=True, text=True, errors='strict', timeout=2, check=False)
+                         capture_output=True, text=True, errors='strict', timeout=min(2,remaining), check=False)
             files = _open_files(result.stdout, pid) if result.returncode == 0 else None
         except (OSError, UnicodeError, ValueError, subprocess.SubprocessError):
             files = None

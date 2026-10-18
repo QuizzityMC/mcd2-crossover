@@ -17,7 +17,7 @@ import diagnostics
 import internal_errors
 ERROR_STAGE = "validation"
 HOME = Path.home()/'Library/Application Support/DungeonsCrossOver'
-VERSION = '0.1.7'
+VERSION = '0.1.8'
 from crossover import crossover_app
 HASHES = {
     'xgameruntime-native.dll':'815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59',
@@ -93,7 +93,7 @@ def main():
         backup=HOME/'backups'/str(time.time_ns());backup.mkdir(parents=True,mode=0o700)
         # Keep the previous helper/settings too, before updating them. Credentials
         # are not exported into the backup or release.
-        for relative in ('runtime/keychain','runtime/signin-ui.exe','runtime/bridge.py','runtime/diagnostics.py','runtime/internal_errors.py','runtime/error_codes.json','runtime/localization.py','runtime/session_watch.py','runtime/game_process.py','runtime/crossover.py','settings.json','installation.json'):
+        for relative in ('runtime/keychain','runtime/signin-ui.exe','runtime/bridge.py','runtime/diagnostics.py','runtime/freeze_capture.py','runtime/internal_errors.py','runtime/error_codes.json','runtime/localization.py','runtime/session_watch.py','runtime/game_process.py','runtime/crossover.py','settings.json','installation.json'):
             previous=HOME/relative
             if previous.is_file():
                 dest=backup/'helper'/relative;dest.parent.mkdir(parents=True,exist_ok=True)
@@ -129,6 +129,7 @@ def main():
     write(runtime/'crossover.py',(ROOT/'scripts/crossover.py').read_bytes())
     write(runtime/'game_process.py',(ROOT/'scripts/game_process.py').read_bytes())
     write(runtime/'diagnostics.py',(ROOT/'helper/diagnostics.py').read_bytes())
+    write(runtime/'freeze_capture.py',(ROOT/'helper/freeze_capture.py').read_bytes())
     for name in ('internal_errors.py','error_codes.json'):
         write(runtime/name,(ROOT/'helper'/name).read_bytes())
     write(runtime/'localization.py',(ROOT/'helper/localization.py').read_bytes())

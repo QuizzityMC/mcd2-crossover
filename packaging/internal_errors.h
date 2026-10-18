@@ -34,6 +34,10 @@ static NSDictionary *MCD2ErrorCatalog(void) {
 @4002: @{@"check": @"Stop game", @"expected": @"The selected game stops successfully.", @"observed": @"The game-stop operation failed.", @"next_step": @"Use Windows Steam in the selected bottle to stop the game."},
 @5001: @{@"check": @"Save troubleshooting logs", @"expected": @"The selected destination accepts the log archive.", @"observed": @"The logs could not be saved.", @"next_step": @"Choose another destination; Copy Details can still copy this error."},
 @5002: @{@"check": @"Record troubleshooting logs", @"expected": @"The diagnostic helper can start or stop recording.", @"observed": @"Recording could not be changed.", @"next_step": @"Check folder access or use Repair Setup."}
+,
+@5003: @{@"check": @"Find game for freeze capture", @"expected": @"One running instance of the selected game.", @"observed": @"The selected game is not running.", @"next_step": @"Capture while the game is frozen, before quitting it."},
+@5004: @{@"check": @"Confirm game identity for capture", @"expected": @"A unique, unchanged process belonging to the selected game.", @"observed": @"The process is ambiguous or changed during capture.", @"next_step": @"Leave only the selected game open and try capturing again."},
+@5005: @{@"check": @"Sample frozen game", @"expected": @"macOS returns a usable sample within the time limit.", @"observed": @"Sampling was denied, timed out, or returned no usable stack frames.", @"next_step": @"Save Logs for the capture outcome. Alternatively use Activity Monitor to sample the game before quitting."}
     };
 }
 static NSDictionary *MCD2ErrorRecord(NSInteger code, NSNumber *exitCode, NSNumber *systemCode) {

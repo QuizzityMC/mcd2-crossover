@@ -108,5 +108,14 @@
   "Move the game to a folder without quotes or % in its name, then try again.": "请将游戏移至名称不含引号或 % 的文件夹，然后重试。",
   "Dependency files could not be verified. Check your connection and try setup again.": "无法验证依赖文件。请检查网络连接后重新设置。",
   "Signed in to: ": "已登录为: ",
-  "Not signed in": "未登录"
+  "Not signed in": "未登录",
+  "Game Froze — Capture Diagnostics": "Game Froze — Capture Diagnostics",
+  "No running copy of the selected game was found. Capture while it is frozen, before quitting.": "No running copy of the selected game was found. Capture while it is frozen, before quitting.",
+  "Could not sample the game. Save Logs for the capture result, or use Activity Monitor → Sample Process.": "Could not sample the game. Save Logs for the capture result, or use Activity Monitor → Sample Process.",
+  "Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.": "Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.",
+  "Capturing the game’s state… Leave it open. This usually takes a few seconds.": "Capturing the game’s state… Leave it open. This usually takes a few seconds.",
+  "Start Recording before playing. If the game freezes, leave it open and capture diagnostics before quitting.": "Start Recording before playing. If the game freezes, leave it open and capture diagnostics before quitting.",
+  "After updating, use Repair Setup once with the game closed to enable timestamped game diagnostics.": "After updating, use Repair Setup once with the game closed to enable timestamped game diagnostics.",
+  "Capture takes a short sample of the selected game and its memory usage. It leaves the game running and does not upload anything.": "Capture takes a short sample of the selected game and its memory usage. It leaves the game running and does not upload anything.",
+  "Could not identify one running copy safely. Leave only the selected game open and try again.": "Could not identify one running copy safely. Leave only the selected game open and try again."
 }

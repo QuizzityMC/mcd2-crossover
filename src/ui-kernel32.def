@@ -24,3 +24,5 @@ ReadFile
 ExitProcess
 
 MultiByteToWideChar
+
+GetCurrentThreadId

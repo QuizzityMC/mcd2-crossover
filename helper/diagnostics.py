@@ -16,6 +16,8 @@ import uuid
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 HOME = Path.home() / 'Library/Application Support/DungeonsCrossOver'
 MAX_SECONDS = 3600
 MAX_LOG_BYTES = 256 * 1024
@@ -29,12 +31,12 @@ EVENTS = {
     'recording_started', 'setup', 'setup_started', 'setup_completed', 'setup_failed',
     'launch', 'launch_started', 'launch_requested', 'launch_failed', 'sign_out',
     'sign_out_started', 'sign_out_completed', 'sign_out_failed', 'game_selected',
-    'copy_checked', 'connectivity', 'renewal', 'stop_game',
+    'copy_checked', 'connectivity', 'renewal', 'stop_game', 'freeze_capture',
 }
 AUTH_STEPS = {
     'device-code-start', 'device-code-poll', 'microsoft-refresh', 'device-auth',
     'xbox-user-auth', 'xsts-xbox', 'xsts-minecraft', 'xsts-playfab',
-    'renewal-complete', 'forced-renewal-failed', 'silent-renewal-failed',
+    'renewal-started', 'renewal-failed', 'renewal-complete', 'forced-renewal-failed', 'silent-renewal-failed',
 }
 OAUTH_ERRORS = {
     'authorization_pending', 'slow_down', 'invalid_grant', 'invalid_client',
@@ -52,7 +54,7 @@ RUNTIME_LABELS = {
     'XUserAddByIdWithUi no valid session', 'XUserAddByIdWithUi matches authenticated user',
     'XUserAddByIdWithUiResult', 'localId', 'findLocal', 'getId', 'findId', 'guest',
     'state', 'age', 'Privilege requested', 'Gamertag component',
-    'Service token requested', 'Service token result', 'changeRegister', 'changeUnregister',
+    'ForceRefresh started', 'ForceRefresh elapsed milliseconds', 'Service token requested', 'Service token result', 'changeRegister', 'changeUnregister',
 }
 USER_APIS = {
     'XUserQueryInterface', 'XUserAddRef', 'XUserRelease', 'XUserDuplicateHandle',
@@ -192,7 +194,7 @@ def enabled(home=HOME, now=None):
 def start(home=HOME, now=None):
     home = _private_home(home)
     # Reject unexpected file types before clearing any previous recording.
-    for name in (*LOG_FILES, FLAG, STATE):
+    for name in (*LOG_FILES, FLAG, STATE, 'freeze.json'):
         path = home / name
         if (path.exists() or path.is_symlink()) and not _regular(path):
             raise ValueError('unsafe diagnostic file')
@@ -202,7 +204,7 @@ def start(home=HOME, now=None):
     stamp = int(time.time() if now is None else now)
     if stamp <= 0:
         raise ValueError('invalid recording time')
-    previous_logs = [home / name for name in LOG_FILES if _regular(home / name)]
+    previous_logs = [home / name for name in (*LOG_FILES, 'freeze.json') if _regular(home / name)]
     (home / FLAG).unlink(missing_ok=True)
     if previous_logs:
         recordings.mkdir(mode=0o700, exist_ok=True)
@@ -270,7 +272,7 @@ def status(home=HOME, now=None):
             if _regular(path):
                 files.append({'name': name, 'bytes': min(path.stat().st_size, MAX_LOG_BYTES),
                               'capped': path.stat().st_size > MAX_LOG_BYTES})
-    result = {'ok': True, 'active': active, 'available': bool(files) or _internal_error_report(home) is not None,
+    result = {'ok': True, 'active': active, 'available': bool(files) or _freeze_report(home) is not None or _internal_error_report(home) is not None,
               'seconds_remaining': max(0, int(state.get('expires', 0) - now)) if active else 0,
               'expires': state.get('expires'), 'started': state.get('started'), 'logfiles': files}
     if state and _integer(stopped, state['started'], state['expires']):
@@ -300,19 +302,43 @@ def record(home, event, fields=None, now=None):
     home = Path(home)
     if not _member(event, EVENTS) or not enabled(home, now):
         return False
-    row = {'event': event, **_app_fields(fields or {})}
+    row = {'event': event, 'timestamp_ms': int((time.time() if now is None else now)*1000), **_app_fields(fields or {})}
+    return append_json(home / 'app.log', row)
+
+
+def append_json(path, row):
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, 'O_NOFOLLOW', 0)
     try:
-        fd = os.open(home / 'app.log', flags, 0o600)
+        fd = os.open(path, flags, 0o600)
         with os.fdopen(fd, 'a') as file:
-            if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
-                return False
-            if os.fstat(file.fileno()).st_size >= MAX_LOG_BYTES:
-                return False
+            if not stat.S_ISREG(os.fstat(file.fileno()).st_mode): return False
+            if os.fstat(file.fileno()).st_size >= MAX_LOG_BYTES: return False
             file.write(json.dumps(row, sort_keys=True, separators=(',', ':')) + '\n')
         return True
     except OSError:
         return False
+
+
+def timing_fields(doc):
+    result = {}
+    for key, limit in [('timestamp_ms', 9999999999999), ('elapsed_ms', 86400000), ('attempt', 1000000), ('pid', 2**32-1), ('thread_id', 2**32-1)]:
+        if _integer(doc.get(key), 0, limit): result[key] = doc[key]
+    if _member(doc.get('phase'), {'started','completed','failed'}): result['phase']=doc['phase']
+    return result
+
+
+def _freeze_report(home):
+    from freeze_capture import safe_report
+    if Path(home).is_symlink(): return None
+    path=Path(home)/'freeze.json'
+    if not _regular(path): return None
+    try:
+        fd=os.open(path,os.O_RDONLY|getattr(os,'O_NOFOLLOW',0))
+        with os.fdopen(fd,'rb') as f:
+            data=f.read(4*1024*1024+1)
+        if len(data)>4*1024*1024:return None
+        return safe_report(json.loads(data))
+    except (OSError,ValueError,TypeError): return None
 
 
 def _host(value):
@@ -351,6 +377,7 @@ def _json_row(line, name):
             result['xerr'] = doc['xerr']
         if _member(doc.get('oauth_error'), OAUTH_ERRORS):
             result['oauth_error'] = doc['oauth_error']
+    result.update(timing_fields(doc))
     return json.dumps(result, sort_keys=True, separators=(',', ':'))
 
 
@@ -383,6 +410,9 @@ def _pairs(text, numeric=(), enums=None):
 
 
 def _http_row(line):
+    if line.startswith('request '):
+        match=re.fullmatch(r'request id=(\d{1,9}) phase=(started|completed) elapsed_ms=(\d{1,8})(?: curl=(-?\d{1,3}) http=(\d{1,3}))?',line)
+        return line if match and int(match[3])<=86400000 else None
     if line in HTTP_CONSTANTS:
         return line
     match = re.fullmatch(r'connection curl=(-?\d{1,3}) http=(\d{1,3}) host=(.*)', line)
@@ -447,6 +477,12 @@ def sanitize(data, name):
         except UnicodeError:
             omitted += 1
             continue
+        prefix = ''
+        if name in {'runtime.log','http.log'}:
+            envelope=re.match(r'^\[t=(\d{13}) p=(\d{1,10}) th=(\d{1,10})\] ',line)
+            if envelope:
+                if any(int(v)>2**32-1 for v in envelope.groups()[1:]): omitted+=1; continue
+                prefix=envelope[0];line=line[envelope.end():]
         if name in {'auth.log', 'app.log'}:
             row = _json_row(line, name)
         elif name == 'runtime.log':
@@ -456,7 +492,7 @@ def sanitize(data, name):
         if row is None:
             omitted += 1
         else:
-            accepted.append(row)
+            accepted.append(prefix + row)
     data = ('\n'.join(accepted) + ('\n' if accepted else '')).encode()
     return data, {'rows': len(accepted), 'omitted_rows': omitted}
 
@@ -501,17 +537,19 @@ def export(home, output, now=None):
     error_report = _internal_error_report(home)
     if error_report:
         entries['internal-error.json'] = (json.dumps(error_report,indent=2)+'\n').encode()
-    if not reports and 'internal-error.json' not in entries:
+    freeze = _freeze_report(home)
+    if freeze: entries['freeze.json'] = (json.dumps(freeze,indent=2)+'\n').encode()
+    if not reports and 'internal-error.json' not in entries and not freeze:
         raise NoRecordingError('no recording available')
     settings = _read_json(home / 'settings.json')
     safe_settings = _app_fields({'store': settings.get('store'), 'app_version': settings.get('app_version')})
     manifest = {
-        'format_version': 1,
+        'format_version': 2,
         'application': 'MCD2 Crossover',
         **safe_settings,
         'recording': {key: state[key] for key in ('started', 'expires', 'stopped') if state.get(key) is not None},
         'logs': reports,
-        'privacy': 'Only selected status codes, request framing and app events are included. '
+        'privacy': 'Only selected status codes, request framing, timestamps, app events and sanitized game stack frames are included. '
                    'Unknown rows and server text are omitted. No tokens, passwords, account IDs, '
                    'user paths, session files, settings files, Keychain data or game files are included.',
     }
@@ -521,7 +559,9 @@ def export(home, output, now=None):
         'Recording stops when this ZIP is saved. The adapters stop recording after one hour even if '
         'the app is closed. Only known status fields are exported; unknown log rows are omitted.\n'
         'No Microsoft credentials, account IDs, paths, game files or saved games are included.\n'
-        'Add a short description of what happened and a screenshot when opening an issue.\n'
+        'freeze.json contains an on-demand game sample and resource snapshot, when captured.\n'
+        'Times are Unix milliseconds (UTC). Legacy rows may have no timestamp.\n'
+        'Capture before quitting the frozen game. Add what happened when opening an issue.\n'
     ).encode()
     temp = output.with_name(output.name + '.' + uuid.uuid4().hex + '.tmp')
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
@@ -541,7 +581,7 @@ def export(home, output, now=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=('start', 'stop', 'status', 'export', 'event'))
+    parser.add_argument('command', choices=('start', 'stop', 'status', 'export', 'event', 'capture'))
     parser.add_argument('--home', type=Path, default=HOME)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--step', choices=sorted(EVENTS))
@@ -552,6 +592,9 @@ def main():
             if args.output is None:
                 parser.error('export needs --output')
             result = export(args.home, args.output)
+        elif args.command == 'capture':
+            from freeze_capture import capture
+            result = capture(args.home)
         elif args.command == 'event':
             if args.step is None:
                 parser.error('event needs --step')

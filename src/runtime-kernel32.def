@@ -24,3 +24,5 @@ GetFileAttributesA
 DeleteFileA
 
 GetCurrentProcessId
+
+GetCurrentThreadId

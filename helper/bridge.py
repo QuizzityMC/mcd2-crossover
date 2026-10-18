@@ -28,6 +28,7 @@ REQUEST_MAGIC = 0x3151455242434447
 ERROR = 0x80004005
 NOUSER = 0x89245100
 cancelled = False
+request_attempts = {}
 
 def private_home():
     os.umask(0o077)
@@ -45,16 +46,15 @@ def atomic(path, data):
         os.replace(temp, path)
     finally: temp.unlink(missing_ok=True)
 
-def diagnostic(step, status=None, doc=None):
+def diagnostic(step, status=None, doc=None, **fields):
     if not diagnostics.enabled(HOME): return
-    row = {'step': step}
+    row = {'step': step, 'timestamp_ms': time.time_ns() // 1000000, **diagnostics.timing_fields(fields)}
     if isinstance(status, int): row['http_status'] = status
     doc = doc or {}
     if isinstance(doc.get('XErr'), int): row['xerr'] = doc['XErr']
     if doc.get('error') in {'authorization_pending','slow_down','invalid_grant','invalid_client','access_denied','expired_token','invalid_request'}:
         row['oauth_error'] = doc['error']
-    fd = os.open(HOME / 'auth.log', os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, 'a') as f: f.write(json.dumps(row) + '\n')
+    diagnostics.append_json(HOME / 'auth.log', row)
 
 class AuthError(Exception): pass
 
@@ -92,7 +92,7 @@ def refresh_runtime():
     pending = HOME/'runtime-restart-pending'
     with open(HOME/'runtime-update.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        for name in ('error_codes.json','internal_errors.py','diagnostics.py','localization.py','session_watch.py','bridge.py'):
+        for name in ('error_codes.json','internal_errors.py','diagnostics.py','freeze_capture.py','localization.py','session_watch.py','bridge.py'):
             source = ROOT/name; dest = runtime/name
             data = source.read_bytes()
             if not dest.exists() or dest.read_bytes() != data:
@@ -131,16 +131,19 @@ def post(step, url, form=None, payload=None, extra=None):
     headers.update(extra or {})
     request = urllib.request.Request(url, data=data, headers=headers)
     tls = ssl.create_default_context(cafile=str(HOME / 'runtime/curl-ca-bundle.crt'))
+    request_started = time.monotonic_ns()
+    attempt = request_attempts.get(step, 0) + 1; request_attempts[step] = attempt
+    diagnostic(step, phase='started', attempt=attempt)
     try:
         with urllib.request.urlopen(request, timeout=15, context=tls) as response:
             status, body = response.status, response.read(131072)
     except urllib.error.HTTPError as e: status, body = e.code, e.read(131072)
     except (urllib.error.URLError, TimeoutError):
-        diagnostic(step); raise AuthError('network request failed') from None
+        diagnostic(step, phase='failed', attempt=attempt, elapsed_ms=(time.monotonic_ns()-request_started)//1000000); raise AuthError('network request failed') from None
     try: doc = json.loads(body)
     except (ValueError, UnicodeError): doc = {}
     if not isinstance(doc, dict): doc = {}
-    diagnostic(step, status, doc)
+    diagnostic(step, status, doc, phase='completed', attempt=attempt, elapsed_ms=(time.monotonic_ns()-request_started)//1000000)
     return status, doc
 
 def b64(value): return base64.urlsafe_b64encode(value).rstrip(b'=').decode()
@@ -230,6 +233,16 @@ def credential_lock():
         yield
 
 def renew():
+    started = time.monotonic_ns()
+    diagnostic('renewal-started')
+    try:
+        _renew()
+    except Exception:
+        diagnostic('renewal-failed', elapsed_ms=(time.monotonic_ns()-started)//1000000)
+        raise
+    diagnostic('renewal-complete', elapsed_ms=(time.monotonic_ns()-started)//1000000)
+
+def _renew():
     with credential_lock():
         if (HOME/'signed-out').exists(): raise AuthError('signed out')
         refresh = keychain('get')
@@ -244,7 +257,6 @@ def renew():
         if (HOME/'signed-out').exists(): raise AuthError('signed out')
         if doc.get('refresh_token'): keychain('set',doc['refresh_token'])
         atomic(HOME/'session.bin',packet)
-    diagnostic('renewal-complete')
 
 def interactive(bottle):
     status,start = post('device-code-start','https://login.live.com/oauth20_connect.srf',

@@ -6,13 +6,13 @@ Repairs Steam startup, runtime dependencies, networking and Microsoft/Xbox sign-
 
 <img width="588" height="504" alt="Screenshot 2026-10-01 at 01 04 03" src="https://github.com/user-attachments/assets/46ba1909-937e-4134-93e9-4b90c623c628" />
 
-**[Download MCD2 Crossover →](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.1.7)**
+**[Download MCD2 Crossover →](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.1.8)**
 
 ## Install
 
 Install CrossOver, Windows Steam and Minecraft Dungeons II first. Open Steam and sign in at least once.
 
-1. Download **MCD2-Crossover-0.1.7-arm64.dmg** under **Assets** on the download page.
+1. Download **MCD2-Crossover-0.1.8-arm64.dmg** under **Assets** on the download page.
 2. Open it and drag **MCD2 Crossover** into **Applications**.
 3. Quit the game, then open **MCD2 Crossover** from Applications.
 If macOS blocks it, approve it in **System Settings → Privacy & Security**. 
@@ -41,14 +41,16 @@ Your Microsoft sign-in stays saved. The previous bottle keeps its repair; the ap
 
 Quit the game, open **MCD2 Crossover**, and click **Sign Out**. This removes the saved Microsoft credential and local session. Click **Play** to sign in again with the account you want.
 
-## What's new in 0.1.7
+## What's new in 0.1.8
 
-- When Microsoft rejects a saved sign-in and requires authentication again, Play now opens a fresh sign-in window. Network and service failures remain visible as errors.
-- Failures show an **Internal Error** code with **See details…** and **Copy Details**, including what was checked and what to try next. Setup errors only appear after you attempt to click **Set Up**.
-- **Save Logs…** can export the last error even without a recording.
-- Updating the helper also installs its diagnostic dependencies.
+This release improves investigation of freezes during gameplay. It does **not** claim to fix the reported freeze.
 
-Choose **Check for Updates…** in the app menu to update. Verified with 72 automated Python tests and 26 native UI assertions; this does not establish the cause of every reported sign-in failure.
+- Timestamped app, authentication, runtime and HTTP diagnostics, with request durations and attempt counts.
+- **Game Froze — Capture Diagnostics** takes a short sample of the selected running game and records its CPU and memory usage. It leaves the game running.
+- Save Logs includes the sanitized sample, or a clear capture failure result. Capture works even if recording was not started, though earlier events cannot be recovered.
+- Internal Error 5003–5005 explain missing processes, ambiguous game selection and sampling failures.
+
+After updating, choose **Repair Setup** once with the game closed to install the updated game diagnostics.
 
 ## What's new in 0.1.6
 
@@ -78,7 +80,17 @@ Still having trouble? [Open an issue here](https://github.com/Wanzho/mcd2-crosso
 
 If **Set Up** is greyed out, click it to see the reason.
 
-Open **Troubleshooting…**, click **Start Recording** and reproduce the problem. Click **Save Logs…** and attach the ZIP to the issue. Setup and sign-in problems can be recorded with the game closed.
+For a freeze during gameplay:
+
+1. Update to 0.1.8, then use **Repair Setup** with the game closed.
+2. Open **Troubleshooting… → Start Recording**, then play normally. Recording expires after one hour.
+3. When the game freezes, **leave it open**. In the app, click **Game Froze — Capture Diagnostics**.
+4. Wait for the capture result, then click **Save Logs…** and attach the ZIP to your issue. Mention what you were doing when it froze.
+5. You can then stop the frozen game through Windows Steam.
+
+Capture samples only the selected game. It does not change Wi-Fi, restart the game, upload logs, or read credentials. The exported sample excludes raw process metadata, personal paths and arbitrary module names. If macOS denies sampling, the app reports that; Activity Monitor's Sample Process is an alternative.
+
+For setup/sign-in problems, start recording, reproduce the problem and save logs. No game launch is needed.
 
 Issues resolved by this application:
 

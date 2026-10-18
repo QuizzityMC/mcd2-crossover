@@ -69,6 +69,8 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
 @property NSButton *closeButton;
 @property NSButton *changeBottleButton;
 @property NSButton *recordButton;
+@property NSButton *captureButton;
+@property BOOL captureMessage;
 @property NSButton *saveLogsButton;
 @property NSButton *troubleshootingButton;
 @property NSPanel *diagnosticPanel;
@@ -120,7 +122,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     self.bottleRoot = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/CrossOver/Bottles"];
     MCD2ConfigureLocalization(resources,[support stringByAppendingPathComponent:@"ui-language"]);
     __weak MCD2App *weakSelf = self;
-    [[CrossoverUpdater shared] startWithBusyCheck:^BOOL { return weakSelf.working; }];
+    [[CrossoverUpdater shared] startWithBusyCheck:^BOOL { return weakSelf.working || weakSelf.diagnosticsBusy; }];
     [self buildMenu];
     self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,700,600) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
     self.window.contentMinSize = NSMakeSize(660,420);
@@ -135,6 +137,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
         || [saved[@"app_version"] isEqualToString:@"0.1.5"]
         || [saved[@"app_version"] isEqualToString:@"0.1.5.1"]
         || [saved[@"app_version"] isEqualToString:@"0.1.6"]
+        || [saved[@"app_version"] isEqualToString:@"0.1.7"]
         || [saved[@"app_version"] isEqualToString:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]])
         && exists([support stringByAppendingPathComponent:@"runtime/bridge.py"])
         && exists([support stringByAppendingPathComponent:@"runtime/localization.py"])
@@ -167,6 +170,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     NSMenuItem *guide = [helpMenu addItemWithTitle:L(@"MCD2 Crossover Help") action:@selector(openHelp:) keyEquivalent:@"?"]; guide.target = self;
     NSMenuItem *troubleshooting = [helpMenu addItemWithTitle:L(@"Troubleshooting…") action:@selector(openTroubleshooting:) keyEquivalent:@""]; troubleshooting.target = self;
     NSMenuItem *record = [helpMenu addItemWithTitle:L(@"Start / Stop Recording") action:@selector(toggleRecording:) keyEquivalent:@""]; record.target = self;
+    NSMenuItem *capture = [helpMenu addItemWithTitle:L(@"Game Froze — Capture Diagnostics") action:@selector(captureFreeze:) keyEquivalent:@""]; capture.target = self;
     NSMenuItem *save = [helpMenu addItemWithTitle:L(@"Save Logs…") action:@selector(saveLogs:) keyEquivalent:@""]; save.target = self;
     NSApp.mainMenu = main;
 }
@@ -753,7 +757,11 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
         [stack addArrangedSubview:[NSButton buttonWithTitle:@"Copy Details" target:self action:@selector(copyErrorDetails:)]];
     }
     self.recordStatus = label(@"",13,NSFontWeightRegular); self.recordStatus.accessibilityLabel = L(@"Log recording status"); [stack addArrangedSubview:self.recordStatus];
-    [stack addArrangedSubview:label(L(@"Setup and sign-in issues can be recorded here with the game closed."),13,NSFontWeightRegular)];
+    [stack addArrangedSubview:label(L(@"Start Recording before playing. If the game freezes, leave it open and capture diagnostics before quitting."),13,NSFontWeightRegular)];
+    [stack addArrangedSubview:label(L(@"After updating, use Repair Setup once with the game closed to enable timestamped game diagnostics."),12,NSFontWeightRegular)];
+    [stack addArrangedSubview:label(L(@"Capture takes a short sample of the selected game and its memory usage. It leaves the game running and does not upload anything."),12,NSFontWeightRegular)];
+    self.captureButton = [NSButton buttonWithTitle:L(@"Game Froze — Capture Diagnostics") target:self action:@selector(captureFreeze:)];
+    [stack addArrangedSubview:self.captureButton];
     self.recordButton = [NSButton buttonWithTitle:L(@"Start Recording") target:self action:@selector(toggleRecording:)];
     self.saveLogsButton = [NSButton buttonWithTitle:L(@"Save Logs…") target:self action:@selector(saveLogs:)];
     NSButton *done = [NSButton buttonWithTitle:L(@"Done") target:self action:@selector(closeTroubleshooting:)]; done.keyEquivalent = @"\e";
@@ -762,28 +770,28 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     [self updateRecording:@{@"active":@(self.recording)}];
     [stack layoutSubtreeIfNeeded];
     [panel setContentSize:NSMakeSize(600,MAX(240,stack.fittingSize.height+40))];
-    [self.window beginSheet:panel completionHandler:nil]; [self refreshRecording:nil];
+    [self.window beginSheet:panel completionHandler:nil]; if (!self.captureMessage) [self refreshRecording:nil];
 }
 - (void)closeTroubleshooting:(id)sender {
     [self.window endSheet:self.diagnosticPanel]; self.diagnosticPanel = nil;
-    self.recordButton = nil; self.saveLogsButton = nil; self.recordStatus = nil;
+    self.captureMessage = NO; self.recordButton = nil; self.captureButton = nil; self.saveLogsButton = nil; self.recordStatus = nil;
 }
 - (void)diagnostics:(NSString *)command output:(NSString *)path completion:(void (^)(NSDictionary *, BOOL))completion {
     if (self.runtimeError) { self.recordStatus.stringValue = self.runtimeError; completion(@{},NO); return; }
-    self.diagnosticsBusy = YES; self.recordButton.enabled = NO; self.saveLogsButton.enabled = NO;
+    self.diagnosticsBusy = YES; self.captureButton.enabled = NO; self.recordButton.enabled = NO; self.saveLogsButton.enabled = NO;
     NSTask *task = [NSTask new]; task.executableURL = [NSURL fileURLWithPath:[resources stringByAppendingPathComponent:@"python/bin/python3"]];
     NSMutableArray *args = [@[@"-I",@"-B",[resources stringByAppendingPathComponent:@"helper/diagnostics.py"],command] mutableCopy];
     if (path) [args addObjectsFromArray:@[@"--output",path]];
     task.arguments = args; NSPipe *pipe = [NSPipe pipe]; task.standardOutput = pipe; task.standardError = NSFileHandle.fileHandleWithNullDevice;
     if (![task launchAndReturnError:nil]) {
-        self.diagnosticsBusy = NO; self.recordButton.enabled = YES; self.saveLogsButton.enabled = YES;
+        self.diagnosticsBusy = NO; self.captureButton.enabled = YES; self.recordButton.enabled = YES; self.saveLogsButton.enabled = YES;
         if (completion) completion(@{},NO); return;
     }
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
         NSData *data = [pipe.fileHandleForReading readDataToEndOfFile]; [task waitUntilExit];
         id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.diagnosticsBusy = NO; self.recordButton.enabled = YES; self.saveLogsButton.enabled = YES;
+            self.diagnosticsBusy = NO; self.captureButton.enabled = YES; self.recordButton.enabled = YES; self.saveLogsButton.enabled = YES;
             if (completion) completion([json isKindOfClass:NSDictionary.class] ? json : @{},task.terminationStatus == 0);
         });
     });
@@ -792,7 +800,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     self.recording = [state[@"active"] boolValue];
     self.recordButton.title = self.recording ? L(@"Stop Recording") : L(@"Start Recording");
     [self refreshAccount];
-    if (!self.logsSaved || self.recording) self.recordStatus.stringValue = self.recording ? L(@"Recording. Reproduce the problem, then click Save Logs.") : L(@"For in-game problems, click on Start Recording and reproduce the problem in-game.");
+    if (!self.captureMessage && (!self.logsSaved || self.recording)) self.recordStatus.stringValue = self.recording ? L(@"Recording. Reproduce the problem, then click Save Logs.") : L(@"For in-game problems, click on Start Recording and reproduce the problem in-game.");
     self.troubleshootingButton.toolTip = self.recording ? L(@"Recording troubleshooting logs — click to stop or save") : L(@"Record a problem and save troubleshooting logs");
     if (state[@"available"]) self.saveLogsButton.enabled = [state[@"available"] boolValue] || self.internalError != nil;
 }
@@ -802,9 +810,28 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
 }
 - (void)toggleRecording:(id)sender {
     if (self.diagnosticsBusy) return;
+    self.captureMessage = NO;
     [self diagnostics:self.recording ? @"stop" : @"start" output:nil completion:^(NSDictionary *state, BOOL ok) {
         if (ok) { self.logsSaved = NO; [self updateRecording:state]; }
         else { [self reportError:5002 exit:nil system:nil local:nil]; self.recordStatus.stringValue = @"Internal Error: 5002 — Could not change recording. See details in the launcher."; }
+    }];
+}
+- (void)captureFreeze:(id)sender {
+    if (self.diagnosticsBusy) return;
+    if (!self.diagnosticPanel) { self.captureMessage = YES; [self openTroubleshooting:nil]; }
+    self.captureMessage = YES; self.logsSaved = NO;
+    self.recordStatus.stringValue = L(@"Capturing the game’s state… Leave it open. This usually takes a few seconds.");
+    [self diagnostics:@"capture" output:nil completion:^(NSDictionary *state, BOOL ok) {
+        [self updateRecording:state];
+        NSString *outcome = state[@"capture_outcome"];
+        if (ok && [outcome isEqualToString:@"captured"]) {
+            self.recordStatus.stringValue = L(@"Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.");
+        } else {
+            NSInteger code = [outcome isEqualToString:@"game_not_running"] ? 5003 : [outcome isEqualToString:@"ambiguous_game"] || [outcome isEqualToString:@"process_changed"] ? 5004 : 5005;
+            [self reportError:code exit:nil system:nil local:nil];
+            self.recordStatus.stringValue = code==5003 ? L(@"No running copy of the selected game was found. Capture while it is frozen, before quitting.") : code==5004 ? L(@"Could not identify one running copy safely. Leave only the selected game open and try again.") : L(@"Could not sample the game. Save Logs for the capture result, or use Activity Monitor → Sample Process.");
+        }
+        self.saveLogsButton.enabled = YES;
     }];
 }
 - (void)saveLogs:(id)sender {
@@ -845,7 +872,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     if (item.action == @selector(play:) || item.action == @selector(signOut:) || item.action == @selector(stopGame:) || item.action == @selector(changeBottle:)) return !self.working && !self.setupMode;
     if (item.action == @selector(repair:)) return !self.working && !self.window.attachedSheet;
     if (item.action == @selector(chooseFolder:)) return !self.working && !self.window.attachedSheet;
-    if (item.action == @selector(toggleRecording:) || item.action == @selector(saveLogs:)) return !self.diagnosticsBusy;
+    if (item.action == @selector(captureFreeze:) || item.action == @selector(toggleRecording:) || item.action == @selector(saveLogs:)) return !self.diagnosticsBusy;
     return YES;
 }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {

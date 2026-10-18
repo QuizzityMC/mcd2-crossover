@@ -8,6 +8,7 @@ __declspec(dllimport) void ReleaseSRWLockExclusive(LOCK*);
 typedef int (*DEBUGFN)(void*,int,char*,SIZE,void*);
 typedef SIZE (*WRITEFN)(char*,SIZE,SIZE,void*);
 struct Trace {
+ unsigned long long diagnosticId,diagnosticStart;
  void *easy; int selected,apiSelected,verbose; char operation[129]; DEBUGFN debug; void *debugdata;
  WRITEFN write; void *writedata;
  void *headers; int originalCTCount,originalCTKind;
