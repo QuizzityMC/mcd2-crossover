@@ -17,7 +17,7 @@ import diagnostics
 import internal_errors
 ERROR_STAGE = "validation"
 HOME = Path.home()/'Library/Application Support/DungeonsCrossOver'
-VERSION = '0.1.8'
+VERSION = '0.1.8.1'
 from crossover import crossover_app
 HASHES = {
     'xgameruntime-native.dll':'815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59',

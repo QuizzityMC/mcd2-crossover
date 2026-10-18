@@ -3,6 +3,7 @@
 Raw macOS sample metadata stays in a private temporary directory. Only call-graph
 frames, numeric resource values and fixed outcomes survive into the support ZIP.
 """
+import io
 import json
 import os
 import re
@@ -12,21 +13,41 @@ import tempfile
 import time
 from pathlib import Path
 
-MAX_SAMPLE = 8 * 1024 * 1024
+MAX_SAMPLE = 128 * 1024 * 1024
+SAMPLE_TIMEOUT = 60
+MAX_THREADS = 256
+FRAMES_PER_THREAD = 128
 MAX_FRAMES = 12000
 OUTCOMES = {'captured', 'game_not_running', 'ambiguous_game', 'settings_missing',
-            'sample_denied', 'sample_timeout', 'sample_empty', 'process_changed', 'capture_failed'}
+            'sample_denied', 'sample_timeout', 'sample_empty', 'sample_missing', 'sample_failed',
+            'process_changed', 'capture_failed'}
 # Symbols are retained only from known system/Wine/graphics modules. Game and
 # unrecognized modules retain addresses for comparison, without arbitrary names.
 MODULE = re.compile(r'(?:lib(?:system_[a-z_]+|dispatch|dyld|pthread|objc|c\+\+|RosettaRuntime|unwind|metalirconverter)\.dylib|Metal|MetalKit|IOGPU|IOKit|CoreFoundation|Foundation|AppKit|QuartzCore|AGXMetal[A-Za-z0-9_]*|D3DMetal|d3dmetal(?:\.dll)?|wine(?:64)?(?:-preloader)?|(?:ntdll|kernelbase|kernel32|win32u|winevulkan|vulkan-1|d3d11|d3d12|dxgi|xgameruntime|xgameruntime-native|XCurl|curl-compat)\.(?:dll|so))')
 
 
 def sample_frames(text):
-    """Reconstruct frames, dropping process paths, thread names and image tables."""
-    frames = []
+    return parse_sample(io.StringIO(text))[0]
+
+
+def parse_sample(lines):
+    """Stream a bounded report; collapse repeated frames and retain every thread.
+
+    Keep both ends of long stacks, rather than letting an early unresolved stack
+    consume the entire export budget. Never copy raw headers or thread names.
+    """
+    threads = []
     inside = False
-    thread = 0
-    for line in text.splitlines():
+    current = None
+    previous = None
+    truncated = False
+    byte_count = 0
+    threads_seen = 0
+    for line in lines:
+        byte_count += len(line.encode('utf-8', errors='replace'))
+        if byte_count > MAX_SAMPLE:
+            truncated = True
+            break
         if line.strip() == 'Call graph:':
             inside = True
             continue
@@ -35,20 +56,61 @@ def sample_frames(text):
         if line.startswith(('Total number', 'Sort by', 'Binary Images:', 'External Modification')):
             break
         if 'Thread_' in line or re.search(r'\bThread\s+\d+', line):
-            thread += 1
+            threads_seen += 1
+            previous = None
+            current = [] if len(threads) < MAX_THREADS else None
+            if current is not None: threads.append(current)
+            else: truncated = True
             continue
         match = re.match(r'^([ +|!:]*)(\d+)\s+(.+?)\s+\(in (.+?)\)(.*)$', line)
-        if not match or len(frames) >= MAX_FRAMES:
+        if not match or current is None:
             continue
         indent, count, symbol, module, tail = match.groups()
-        # Raw names are never copied for unknown modules.
         known = bool(MODULE.fullmatch(module))
         safe_symbol = symbol if known and re.fullmatch(r'[A-Za-z_?$][A-Za-z0-9_:$?<>~.* +\[\](),-]{0,180}', symbol) else '[unresolved]'
         addresses = re.findall(r'\b0x[0-9a-fA-F]{1,16}\b', tail)
-        frames.append({'thread': thread, 'depth': min(len(indent), 500),
-                       'samples': min(int(count), 1000000), 'module': module if known else '[game-or-other-module]',
-                       'symbol': safe_symbol, 'address': addresses[-1] if addresses else 'unknown'})
-    return frames
+        frame = {'thread': threads_seen, 'depth': min(len(indent), 1000000),
+                 'samples': min(int(count), 1000000), 'module': module if known else '[game-or-other-module]',
+                 'symbol': safe_symbol, 'address': addresses[-1] if addresses else 'unknown'}
+        if previous and all(previous[k] == frame[k] for k in ('thread','samples','module','symbol','address')):
+            previous['repeat'] = min(previous.get('repeat', 1) + 1, 1000000)
+            continue
+        current.append(frame)
+        previous = frame
+        if len(current) > FRAMES_PER_THREAD:
+            del current[FRAMES_PER_THREAD // 2]
+            truncated = True
+    quota = min(FRAMES_PER_THREAD, MAX_FRAMES // max(1, len(threads)))
+    frames = []
+    for stack in threads:
+        if len(stack) > quota:
+            stack = stack[:quota//2] + stack[-(quota-quota//2):]
+            truncated = True
+        frames.extend(stack)
+    return frames, {'truncated': truncated, 'threads_seen': threads_seen,
+                    'threads_captured': sum(bool(t) for t in threads)}
+
+
+def bounded_lines(file):
+    # Normal sample lines can have thousands of spaces from broken stack walks.
+    # Bound individual reads too; skip malformed huge lines without allocating them.
+    while True:
+        line = file.readline(16384)
+        if not line: break
+        if not line.endswith('\n') and len(line) == 16384:
+            yield '\n' * len(line)
+            while line and not line.endswith('\n'):
+                line = file.readline(16384)
+                yield '\n' * len(line)
+        else:
+            yield line
+
+
+def sample_failure(stderr):
+    text = stderr.lower()
+    if any(value in text for value in ('permission', 'not permitted', 'not authorized', 'access denied', 'task_for_pid')):
+        return 'sample_denied'
+    return 'sample_failed'
 
 
 def safe_report(doc):
@@ -56,9 +118,13 @@ def safe_report(doc):
         return None
     result = {'outcome': doc['outcome']}
     for key, limit in [('timestamp_ms', 9999999999999), ('elapsed_ms', 180000),
-                       ('rss_kib', 2**40), ('cpu_tenths', 1000000)]:
+                       ('rss_kib', 2**40), ('cpu_tenths', 1000000), ('sample_bytes', 2**40),
+                       ('threads_seen', 1000000), ('threads_captured', MAX_THREADS)]:
         if type(doc.get(key)) is int and 0 <= doc[key] <= limit:
             result[key] = doc[key]
+    if type(doc.get('truncated')) is bool: result['truncated'] = doc['truncated']
+    if type(doc.get('sample_exit_code')) is int and -255 <= doc['sample_exit_code'] <= 255:
+        result['sample_exit_code'] = doc['sample_exit_code']
     frames = []
     source_frames = doc.get('frames', [])
     if not isinstance(source_frames, list): source_frames = []
@@ -73,7 +139,9 @@ def safe_report(doc):
         address = frame.get('address', '')
         if not isinstance(address,str): continue
         if address != 'unknown' and not re.fullmatch(r'0x[0-9a-fA-F]{1,16}',address): continue
-        frames.append({k:frame[k] for k in ('thread','depth','samples','module','symbol','address')})
+        clean = {k:frame[k] for k in ('thread','depth','samples','module','symbol','address')}
+        if type(frame.get('repeat')) is int and 1 <= frame['repeat'] <= 1000000: clean['repeat'] = frame['repeat']
+        frames.append(clean)
     result['frames'] = frames
     return result
 
@@ -94,7 +162,9 @@ def capture(home, *, inspect=None, run=None):
         d._write_json(home/'freeze.json', safe_report(report))
         d.record(home, 'freeze_capture', {'outcome': 'success' if outcome=='captured' else 'failed'})
         return {'ok': outcome=='captured', 'capture_outcome': outcome, 'available': True,
-                'active': d.enabled(home), 'frames': len(report['frames'])}
+                'active': d.enabled(home), 'frames': len(report['frames']),
+                'truncated': report.get('truncated', False),
+                **({'sample_exit_code': report['sample_exit_code']} if 'sample_exit_code' in report else {})}
     settings = d._read_json(home/'settings.json')
     if not isinstance(settings,dict) or not isinstance(settings.get('bottle'),str) or not isinstance(settings.get('game'),str):
         return finish('settings_missing')
@@ -126,14 +196,22 @@ def capture(home, *, inspect=None, run=None):
         with tempfile.TemporaryDirectory(prefix='.freeze-',dir=home) as temp:
             target=Path(temp)/'sample.txt'
             try:
-                sampled=run(['/usr/bin/sample',str(pid),'3','10','-file',str(target)],
-                            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15,check=False)
+                with (Path(temp)/'stderr.txt').open('w+b') as error_file:
+                    sampled=run(['/usr/bin/sample',str(pid),'3','10','-file',str(target)],
+                                stdout=subprocess.DEVNULL,stderr=error_file,timeout=SAMPLE_TIMEOUT,check=False)
+                    error_file.seek(0)
+                    error_text=error_file.read(8192).decode(errors='replace')
             except subprocess.TimeoutExpired: return finish('sample_timeout')
-            if sampled.returncode: return finish('sample_denied')
+            report['sample_exit_code'] = sampled.returncode
+            if sampled.returncode: return finish(sample_failure(error_text))
             after=inspect(executable,bottle)
             if after.ambiguous or after.selected_pids!=(pid,) or birth()!=before: return finish('process_changed')
-            if not d._regular(target) or target.stat().st_size>MAX_SAMPLE: return finish('sample_empty')
-            report['frames']=sample_frames(target.read_text(errors='replace'))
+            if not d._regular(target): return finish('sample_missing')
+            report['sample_bytes'] = target.stat().st_size
+            with target.open(errors='replace') as source:
+                report['frames'], metadata = parse_sample(bounded_lines(source))
+            report.update(metadata)
+            if report['sample_bytes'] > MAX_SAMPLE: report['truncated'] = True
         return finish('captured' if report['frames'] else 'sample_empty')
     except (KeyError,TypeError,ValueError,OSError,RuntimeError,subprocess.SubprocessError):
         return finish('capture_failed')

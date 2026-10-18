@@ -820,16 +820,31 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     if (self.diagnosticsBusy) return;
     if (!self.diagnosticPanel) { self.captureMessage = YES; [self openTroubleshooting:nil]; }
     self.captureMessage = YES; self.logsSaved = NO;
-    self.recordStatus.stringValue = L(@"Capturing the game’s state… Leave it open. This usually takes a few seconds.");
+    self.recordStatus.stringValue = L(@"Capturing the game’s state… Leave it open. Allow up to one minute for macOS to finish the sample.");
     [self diagnostics:@"capture" output:nil completion:^(NSDictionary *state, BOOL ok) {
         [self updateRecording:state];
         NSString *outcome = state[@"capture_outcome"];
         if (ok && [outcome isEqualToString:@"captured"]) {
-            self.recordStatus.stringValue = L(@"Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.");
+            self.recordStatus.stringValue = [state[@"truncated"] boolValue] ? L(@"Game sample captured with some frames omitted to keep the report bounded. Click Save Logs before quitting the game.") : L(@"Game sample captured. Click Save Logs to save it with the recording. You can now quit the frozen game.");
         } else {
             NSInteger code = [outcome isEqualToString:@"game_not_running"] ? 5003 : [outcome isEqualToString:@"ambiguous_game"] || [outcome isEqualToString:@"process_changed"] ? 5004 : 5005;
-            [self reportError:code exit:nil system:nil local:nil];
-            self.recordStatus.stringValue = code==5003 ? L(@"No running copy of the selected game was found. Capture while it is frozen, before quitting.") : code==5004 ? L(@"Could not identify one running copy safely. Leave only the selected game open and try again.") : L(@"Could not sample the game. Save Logs for the capture result, or use Activity Monitor → Sample Process.");
+            NSDictionary *reasons = @{
+                @"game_not_running": @"No running copy of the selected game was found. Capture while it is frozen, before quitting.",
+                @"ambiguous_game": @"More than one possible game process was found. Leave only the selected game open and try again.",
+                @"process_changed": @"The game process exited or changed during capture. Capture before quitting or restarting it.",
+                @"settings_missing": @"The selected game settings or executable could not be found. Choose the game copy again.",
+                @"sample_timeout": @"macOS did not finish sampling within 60 seconds. Try Activity Monitor → Sample Process while the game is still open.",
+                @"sample_denied": @"macOS denied access to sample the game. Try Activity Monitor → Sample Process.",
+                @"sample_failed": @"The macOS sampling tool exited with an error. Its exit code is included in Save Logs. Try Activity Monitor → Sample Process.",
+                @"sample_missing": @"The macOS sampling tool did not create a report. Try Activity Monitor → Sample Process.",
+                @"sample_empty": @"The report contained no readable thread frames. Try Activity Monitor → Sample Process.",
+                @"capture_failed": @"The capture helper could not complete its checks or save the report. Try again and use Save Logs."
+            };
+            NSString *reason = [outcome isKindOfClass:NSString.class] ? reasons[outcome] : nil;
+            if (!reason) reason = @"The capture helper did not return a valid result. Try again and use Save Logs.";
+            NSNumber *exitCode = [state[@"sample_exit_code"] isKindOfClass:NSNumber.class] ? state[@"sample_exit_code"] : nil;
+            [self reportError:code exit:exitCode system:nil local:L(reason)];
+            self.recordStatus.stringValue = [NSString stringWithFormat:@"%@ %@",L(reason),L(@"Click Save Logs to include the capture result.")];
         }
         self.saveLogsButton.enabled = YES;
     }];

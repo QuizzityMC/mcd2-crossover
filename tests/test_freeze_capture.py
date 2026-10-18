@@ -83,7 +83,7 @@ class FreezeTests(unittest.TestCase):
   self.assertEqual(r['capture_outcome'],'sample_timeout');self.assertFalse(list(self.home.glob('.freeze-*')))
   self.assertEqual((self.home/'session.bin').read_bytes(),b'untouched-secret')
  def test_denied_and_empty_sample_are_honest_failures(self):
-  for code,body,outcome in [(1,SAMPLE,'sample_denied'),(0,'no frames','sample_empty')]:
+  for code,body,outcome in [(1,SAMPLE,'sample_failed'),(0,'no frames','sample_empty')]:
    def run(args,**kw):
     if args[0]=='/usr/bin/sample':Path(args[-1]).write_text(body);return subprocess.CompletedProcess(args,code)
     return self.runner(args,**kw)
@@ -94,6 +94,56 @@ class FreezeTests(unittest.TestCase):
   (self.home/'freeze.json').write_text(json.dumps(report))
   output=self.root/'safe.zip';d.export(self.home,output)
   with zipfile.ZipFile(output) as z:self.assertNotIn(b'Secret',z.read('freeze.json'))
+ def test_large_repeated_sample_keeps_late_threads_and_exports(self):
+  def run(args,**kw):
+   if args[0]!='/usr/bin/sample': return self.runner(args,**kw)
+   with Path(args[-1]).open('w') as out:
+    out.write('Call graph:\n')
+    for thread in range(110):
+     out.write(f'    300 Thread_{thread}: secret@example.com\n')
+     for depth in range(502):
+      out.write('    + ' + '  '*depth + '300 ??? (in ntdll.so) + 8 [0x1234]\n')
+     out.write('    + 300 NtWaitForSingleObject (in ntdll.so) + 8 [0x4567]\n')
+   self.assertGreater(Path(args[-1]).stat().st_size,8*1024*1024)
+   return subprocess.CompletedProcess(args,0)
+  result=f.capture(self.home,inspect=self.inspect,run=run)
+  self.assertTrue(result['ok']);self.assertFalse(result['truncated'])
+  output=self.root/'large.zip';d.export(self.home,output)
+  with zipfile.ZipFile(output) as z:
+   doc=json.loads(z.read('freeze.json'))
+   self.assertEqual(doc['threads_captured'],110)
+   self.assertEqual(doc['frames'][-1]['thread'],110)
+   self.assertEqual(doc['frames'][0]['repeat'],502)
+   self.assertNotIn(b'secret@example.com',z.read('freeze.json'))
+ def test_long_distinct_stacks_keep_both_ends_of_every_thread(self):
+  text='Call graph:\n'
+  for t in range(130):
+   text+=f'    300 Thread_{t}\n'
+   for i in range(140): text+=f'    + 300 wait (in ntdll.so) + 8 [0x{i:x}]\n'
+  frames,meta=f.parse_sample(text.splitlines(True))
+  self.assertTrue(meta['truncated']);self.assertLessEqual(len(frames),f.MAX_FRAMES)
+  for t in range(1,131):
+   stack=[x for x in frames if x['thread']==t]
+   self.assertEqual(stack[0]['address'],'0x0');self.assertEqual(stack[-1]['address'],'0x8b')
+ def test_capture_denial_records_exit_without_exporting_stderr(self):
+  def run(args,**kw):
+   if args[0]!='/usr/bin/sample': return self.runner(args,**kw)
+   kw['stderr'].write(b'Permission denied /Users/PrivatePerson token=SECRET')
+   return subprocess.CompletedProcess(args,13)
+  result=f.capture(self.home,inspect=self.inspect,run=run)
+  self.assertEqual(result['capture_outcome'],'sample_denied')
+  self.assertEqual(result['sample_exit_code'],13)
+  doc=(self.home/'freeze.json').read_text()
+  self.assertNotIn('PrivatePerson',doc);self.assertNotIn('SECRET',doc)
+ def test_missing_report_is_not_called_empty(self):
+  def run(args,**kw):
+   if args[0]=='/usr/bin/sample': return subprocess.CompletedProcess(args,0)
+   return self.runner(args,**kw)
+  self.assertEqual(f.capture(self.home,inspect=self.inspect,run=run)['capture_outcome'],'sample_missing')
+ def test_over_read_budget_exports_partial_and_marks_truncated(self):
+  with patch.object(f,'MAX_SAMPLE',200):
+   frames,meta=f.parse_sample(('Call graph:\n    300 Thread_1\n' + '    + 300 wait (in ntdll.so) [0x1]\n'*20).splitlines(True))
+  self.assertTrue(frames);self.assertTrue(meta['truncated'])
  def test_new_recording_archives_previous_capture(self):
   f.capture(self.home,inspect=self.inspect,run=self.runner);d.start(self.home)
   self.assertFalse((self.home/'freeze.json').exists());self.assertTrue(list((self.home/'recordings').glob('*/freeze.json')))

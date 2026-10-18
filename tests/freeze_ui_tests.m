@@ -30,7 +30,13 @@ int main(void) { @autoreleasepool {
  check([a.recordStatus.stringValue containsString:@"captured"] && a.saveLogsButton.enabled,"successful sample can be exported");
  [a updateRecording:@{@"active":@NO}];check([a.recordStatus.stringValue containsString:@"captured"],"status refresh preserves capture result");
  a.diagnosticsBusy=YES;[a captureFreeze:nil];check(a.calls==1,"duplicate clicks do not launch another sample");a.diagnosticsBusy=NO;
- NSArray *outcomes=@[@"game_not_running",@"ambiguous_game",@"process_changed",@"sample_timeout",@"sample_denied",@"sample_empty"];
- NSArray *codes=@[@5003,@5004,@5004,@5005,@5005,@5005];
+ NSArray *outcomes=@[@"game_not_running",@"ambiguous_game",@"process_changed",@"sample_timeout",@"sample_denied",@"sample_empty",@"sample_failed",@"sample_missing",@"settings_missing"];
+ NSArray *codes=@[@5003,@5004,@5004,@5005,@5005,@5005,@5005,@5005,@5005];
  for(NSUInteger i=0;i<outcomes.count;i++){a.reply=@{@"capture_outcome":outcomes[i],@"available":@YES};[a captureFreeze:nil];check(a.error==[codes[i] integerValue] && a.saveLogsButton.enabled,"capture failure displays the matching error and permits export");}
+ a.reply=@{@"capture_outcome":@"sample_timeout",@"available":@YES};[a captureFreeze:nil];
+ check([a.recordStatus.stringValue containsString:@"60 seconds"],"timeout reason is visible without opening exported logs");
+ a.reply=@{@"capture_outcome":@"sample_denied",@"available":@YES};[a captureFreeze:nil];
+ check([a.recordStatus.stringValue containsString:@"denied access"],"permission failure is distinguished from an empty report");
+ a.reply=@{@"capture_outcome":@"captured",@"truncated":@YES,@"available":@YES};[a captureFreeze:nil];
+ check([a.recordStatus.stringValue containsString:@"omitted"],"partial capture is explicitly labelled");
  } return 0; }

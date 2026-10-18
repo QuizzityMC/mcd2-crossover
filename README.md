@@ -6,13 +6,13 @@ Repairs Steam startup, runtime dependencies, networking and Microsoft/Xbox sign-
 
 <img width="588" height="504" alt="Screenshot 2026-10-01 at 01 04 03" src="https://github.com/user-attachments/assets/46ba1909-937e-4134-93e9-4b90c623c628" />
 
-**[Download MCD2 Crossover →](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.1.8)**
+**[Download MCD2 Crossover →](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.1.8.1)**
 
 ## Install
 
 Install CrossOver, Windows Steam and Minecraft Dungeons II first. Open Steam and sign in at least once.
 
-1. Download **MCD2-Crossover-0.1.8-arm64.dmg** under **Assets** on the download page.
+1. Download **MCD2-Crossover-0.1.8.1-arm64.dmg** under **Assets** on the download page.
 2. Open it and drag **MCD2 Crossover** into **Applications**.
 3. Quit the game, then open **MCD2 Crossover** from Applications.
 If macOS blocks it, approve it in **System Settings → Privacy & Security**. 
@@ -40,6 +40,14 @@ Your Microsoft sign-in stays saved. The previous bottle keeps its repair; the ap
 ## Sign out or switch accounts
 
 Quit the game, open **MCD2 Crossover**, and click **Sign Out**. This removes the saved Microsoft credential and local session. Click **Play** to sign in again with the account you want.
+
+## What's new in 0.1.8.1
+
+- Large process samples no longer fail just because they exceed 8 MiB. Reports are read incrementally, repeated frames are compacted, and both ends of long thread stacks are retained within bounded limits.
+- Capture allows up to 60 seconds for macOS to finish. Timeout, permission denial, missing output and unreadable frames now show distinct messages in the app.
+- Save Logs includes sample size, sampling exit code, thread counts and whether any frames were omitted. Raw process headers and sampler output remain private.
+
+This fixes diagnostics collection; it does not claim to fix gameplay freezes.
 
 ## What's new in 0.1.8
 
@@ -82,7 +90,7 @@ If **Set Up** is greyed out, click it to see the reason.
 
 For a freeze during gameplay:
 
-1. Update to 0.1.8, then use **Repair Setup** with the game closed.
+1. Update to 0.1.8.1, then use **Repair Setup** with the game closed.
 2. Open **Troubleshooting… → Start Recording**, then play normally. Recording expires after one hour.
 3. When the game freezes, **leave it open**. In the app, click **Game Froze — Capture Diagnostics**.
 4. Wait for the capture result, then click **Save Logs…** and attach the ZIP to your issue. Mention what you were doing when it froze.

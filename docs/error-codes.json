@@ -109,7 +109,7 @@
     "check": "Prepare Visual C++",
     "expected": "The required Windows Visual C++ runtime.",
     "observed": "Visual C++ preparation did not complete.",
-    "next_step": "Complete Microsoft\u2019s installer and retry setup."
+    "next_step": "Complete Microsoft’s installer and retry setup."
   },
   {
     "code": 2204,
@@ -248,7 +248,7 @@
     "code": 5005,
     "check": "Sample frozen game",
     "expected": "macOS returns a usable sample within the time limit.",
-    "observed": "Sampling was denied, timed out, or returned no usable stack frames.",
-    "next_step": "Save Logs for the capture outcome. Alternatively use Activity Monitor to sample the game before quitting."
+    "observed": "Sampling failed. The app shows whether access was denied, the 60-second limit expired, output was missing, or frames were unreadable.",
+    "next_step": "Read the specific capture message, then Save Logs for the outcome and sampler exit code. Alternatively use Activity Monitor before quitting the game."
   }
 ]
