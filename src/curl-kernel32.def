@@ -28,3 +28,7 @@ GetTickCount64
 GetSystemTimeAsFileTime
 
 GetCurrentThreadId
+GetModuleHandleA
+VirtualProtect
+GetCurrentProcess
+FlushInstructionCache

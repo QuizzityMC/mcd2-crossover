@@ -26,7 +26,7 @@ CrossOver can also register Visual C++ 14.42 while supplying Wine’s builtin DL
 
 ## What this doesn’t fix
 
-Intermittent crashes and stalls on the Warden screen have no separate confirmed fix. Other Unreal crashes or occurrences of these error codes may have different causes.
+0.2.0-beta.1 adds a fix for one Wine crash during play: a page fault in `ntdll` at `+0x3972e` (wait-queue corruption, see TECHNICAL.md). It has been verified in isolated tests but not yet in the game. Whether it also stops the gameplay freezes is unconfirmed. Intermittent crashes and stalls on the Warden screen have no separate confirmed fix. Other Unreal crashes or occurrences of these error codes may have different causes.
 
 Older-library trials, SteamDeck flags, custom certificate-path overrides and forced Content-Type changes didn’t help. They aren’t included. Your Wine overrides and controller mods are left alone.
 

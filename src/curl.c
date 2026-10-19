@@ -5,6 +5,12 @@ __declspec(dllimport) void* GetProcAddress(HANDLE,const char*);
 __declspec(dllimport) HANDLE CreateFileA(const char*,DWORD,DWORD,void*,DWORD,DWORD,HANDLE);
 __declspec(dllimport) int WriteFile(HANDLE,const void*,DWORD,DWORD*,void*);
 __declspec(dllimport) int CloseHandle(HANDLE);
+__declspec(dllimport) HANDLE GetModuleHandleA(const char*);
+__declspec(dllimport) int VirtualProtect(void*,unsigned long long,DWORD,DWORD*);
+__declspec(dllimport) HANDLE GetCurrentProcess(void);
+__declspec(dllimport) int FlushInstructionCache(HANDLE,const void*,unsigned long long);
+#include "waitqueue-fix.inc"
+static int waitqueueFix=-2;
 void* memset(void*p,int v,unsigned long long n){volatile unsigned char*c=p;while(n--)*c++=v;return p;}
 static HANDLE module,self;
 #define IMP __declspec(dllimport)
@@ -80,9 +86,9 @@ __declspec(dllexport) int curl_easy_setopt(void*e,int opt,void*value){
  return r;
 }
 
-__declspec(dllexport) int curl_global_init_mem(long flags,void*a,void*b,void*c,void*d,void*e){int(*call)(long,void*,void*,void*,void*,void*)=fn("curl_global_init_mem");logline("curl_global_init_mem called\r\n");return call(flags,a,b,c,d,e);}
+__declspec(dllexport) int curl_global_init_mem(long flags,void*a,void*b,void*c,void*d,void*e){int(*call)(long,void*,void*,void*,void*,void*)=fn("curl_global_init_mem");logline("curl_global_init_mem called\r\n");static int fixLogged;if(!fixLogged){fixLogged=1;logline(waitqueueFix==1?"wait-queue fix applied\r\n":waitqueueFix==2?"wait-queue fix already present\r\n":waitqueueFix==0?"wait-queue fix not applicable to this Wine build\r\n":"wait-queue fix could not be applied\r\n");}return call(flags,a,b,c,d,e);}
 __declspec(dllexport) void* curl_easy_init(void){void*(*call)(void)=fn("curl_easy_init");int(*set)(void*,int,...)=fn("curl_easy_setopt");logline("curl_easy_init called\r\n");void*e=call();if(e){setupCA();set(e,10065,trustedCA);set(e,64,(void*)1);set(e,81,(void*)2);trace(e,1);}return e;}
-int DllMain(HANDLE m,DWORD why,void*r){if(why==1)self=m;return 1;}
+int DllMain(HANDLE m,DWORD why,void*r){if(why==1){self=m;waitqueueFix=waitqueue_fix_apply();}return 1;}
 
 __declspec(dllexport) void curl_easy_cleanup(void*e){
  void(*call)(void*)=fn("curl_easy_cleanup");call(e);

@@ -10,6 +10,8 @@ The 0.1.1 app adds **Browse Game Copy…** on the home screen and in setup. It a
 
 `XCurl.dll` loads the official curl library. It declines an incompatible OpenSSL hook and gives curl the body size when the game supplied one valid Content-Length without Transfer-Encoding. Body bytes, other headers and callbacks are preserved.
 
+When it loads, `XCurl.dll` also closes a wait-queue race in Wine's `RtlWaitOnAddress` (WineHQ bug 60397, item 1). After its wait, Wine's waiter checked whether it had been dequeued without taking the queue lock. It could then return while the waker was still unlinking its stack entry. A quick wait on another address could then cross-link two queues, crashing later in `RtlWakeAddressAll` or spinning there. The fix replaces that 2-byte branch in memory with a nop, so the waiter always takes the lock first. It applies only when the exact instruction sequence is found once in Wine's ntdll; other builds and Windows are left alone. No CrossOver file is changed. The result is written to `http.log` when logging is on. Spurious early wakeups (items 2 and 3 of the bug) are unchanged.
+
 ## Sign-in storage
 
 The helper is `bridge.py`. Its access session expires at the earliest Xbox NotAfter. The refresh token stays in a nonsynchronizing Keychain item: service `org.dungeons-crossover.microsoft-refresh`, account `default`. It reaches the native Keychain helper through a pipe, never a command argument or log.
