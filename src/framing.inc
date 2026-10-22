@@ -9,8 +9,8 @@ typedef int (*DEBUGFN)(void*,int,char*,SIZE,void*);
 typedef SIZE (*WRITEFN)(char*,SIZE,SIZE,void*);
 struct Trace {
  unsigned long long diagnosticId,diagnosticStart;
- void *easy; int selected,apiSelected,verbose; char operation[129]; DEBUGFN debug; void *debugdata;
- WRITEFN write; void *writedata;
+ void *easy; int selected,apiSelected,verbose; char host[96],operation[48],configuredHost[96],configuredOperation[48],requestId[37]; const char *method,*customMethod; int responseKind,responseSeen; DEBUGFN debug; void *debugdata;
+ WRITEFN write; void *writedata; int writeDataSet;
  void *headers; int originalCTCount,originalCTKind;
  long long originalPostSize,originalUploadSize; int upload,sizeOverrideApplied;
  SIZE sentBytes,declaredBytes; int declaredSeen,declaredInvalid;
@@ -30,13 +30,6 @@ static struct Trace* trace(void*e,int create){
 static int same(const char*a,const char*b){if(!a)return 0;while(*a&&*a==*b){a++;b++;}return *a==*b;}
 static int selectedURL(const char*u){return same(u,"https://83156.playfabapi.com/Client/LoginWithSteam");}
 static int begins(const char*u,const char*base){if(!u)return 0;while(*base)if(*u++!=*base++)return 0;return 1;}
-static int apiURL(const char*u,char*operation){
- const char*base="https://83156.playfabapi.com/";
- if(begins(u,"https://vex.minecraftservices.com/")){const char*label="minecraft-service";int n=0;while(label[n]){operation[n]=label[n];n++;}operation[n]=0;return 1;}
- if(!begins(u,base))return 0;while(*base){u++;base++;}
- int n=0;while(*u&&*u!='?'&&*u!='#'&&n<128){char c=*u++;if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||c=='/')){const char*label="title-api";n=0;while(label[n]){operation[n]=label[n];n++;}operation[n]=0;return 1;}operation[n++]=c;}
- if(n==128||!n){const char*label="title-api";n=0;while(label[n]){operation[n]=label[n];n++;}}operation[n]=0;return 1;
-}
 static void capture(char*b,unsigned*n,int*overflow,const char*p,SIZE size){
  if(size>8192-*n){*overflow=1;size=8192-*n;}
  for(SIZE i=0;i<size;i++)b[(*n)++]=p[i];b[*n]=0;
@@ -45,13 +38,33 @@ static int contains(const char*b,SIZE n,const char*phrase){
  for(SIZE i=0;i<n;i++){SIZE j=0;while(phrase[j]&&i+j<n){char a=b[i+j],c=phrase[j];if(a>='A'&&a<='Z')a+=32;if(c>='A'&&c<='Z')c+=32;if(a!=c)break;j++;}if(!phrase[j])return 1;}return 0;
 }
 static int boundedSame(const char*p,SIZE n,const char*s){SIZE i=0;while(s[i]){if(i>=n)return 0;char a=p[i],b=s[i];if(a>='A'&&a<='Z')a+=32;if(a!=b)return 0;i++;}return i==n;}
+// These are classifications of known server-page phrases, never extracted text.
+// They share the JSON error vocabulary; response=markup distinguishes the hint.
+static const char*htmlErrorHint(const char*p,SIZE n){
+ static const struct {const char*phrase;const char*code;} known[]={
+  {"Bad Request","BadRequest"},{"Invalid Header","InvalidRequest"},
+  {"Invalid Hostname","InvalidRequest"},{"Invalid Verb","InvalidRequest"},
+  {"Request Header Or Cookie Too Large","BadRequest"},
+  {"Access Denied","AccessDenied"},{"Service Unavailable","ServiceUnavailable"},
+  {"Unauthorized","Unauthorized"},{"Forbidden","Forbidden"}
+ };
+ for(unsigned i=0;i<sizeof(known)/sizeof(known[0]);i++)if(contains(p,n,known[i].phrase))return known[i].code;
+ return "other";
+}
+static const char*safeHeaderName(const char*p,SIZE n){
+ static const char*known[]={"content-type","content-length","content-encoding",
+  "transfer-encoding","expect","host","accept","accept-encoding","user-agent",
+  "authorization","cookie","connection","x-request-id","request-id","x-ms-request-id"};
+ for(unsigned i=0;i<sizeof(known)/sizeof(known[0]);i++)if(boundedSame(p,n,known[i]))return known[i];
+ return "other";
+}
 static int unsignedNumber(char*b,int n,SIZE value){char tmp[21];int k=0;do{tmp[k++]='0'+value%10;value/=10;}while(value&&k<20);while(k&&n<480)b[n++]=tmp[--k];return n;}
 static void headerMetadata(struct Trace*t,const char*p,SIZE size,const char*source){
  SIZE colon=0;while(colon<size&&p[colon]!=':')colon++;
  int valid=colon>0&&colon<=128&&colon<size;
  for(SIZE i=0;valid&&i<colon;i++){char c=p[i];if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'))valid=0;}
  char b[512];int n=append(b,0,"playfab header source=");n=append(b,n,source);n=append(b,n," name=");
- if(valid)for(SIZE i=0;i<colon;i++)b[n++]=p[i];else n=append(b,n,"[invalid-or-suppressed]");
+ n=append(b,n,valid?safeHeaderName(p,colon):"other");
  n=append(b,n," nameValid=");n=number(b,n,valid);b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
  if(!valid)return;
  const char*value=p+colon+1;SIZE raw=size-colon-1,leading=0;
@@ -127,9 +140,20 @@ static void inspectHeaders(struct Trace*t){
 }
 static int diagnosticDebug(void*e,int kind,char*p,SIZE n,void*data){
  struct Trace*t=data;if(!t||t->easy!=e)return 0;
- if(t->apiSelected&&kind==2)outgoingHeaders(t,p,n);
- if(t->apiSelected&&kind==4){t->sentBytes+=n;capture(t->outgoing,&t->outlen,&t->outoverflow,p,n);}
- if(t->apiSelected&&kind==1){
+ if(t->diagnosticId&&t->selected&&kind==2)outgoingHeaders(t,p,n);
+ if(t->diagnosticId&&t->selected&&kind==4){t->sentBytes+=n;capture(t->outgoing,&t->outlen,&t->outoverflow,p,n);}
+ if(t->diagnosticId&&kind==1&&n>=5&&p[0]=='H'&&p[1]=='T'&&p[2]=='T'&&p[3]=='P'&&p[4]=='/'){
+  char*url=0;int(*get)(void*,int,...)=fn("curl_easy_getinfo");
+  if(!get(e,0x100001,&url)){dcDiagRoute(url,t->host,t->operation);t->apiSelected=!same(t->host,"other");}
+ }
+ if(t->diagnosticId&&kind==1){
+  if(n>=5&&p[0]=='H'&&p[1]=='T'&&p[2]=='T'&&p[3]=='P'&&p[4]=='/'){
+   // Redirects and interim responses must not contaminate the final response.
+   erase(t->incoming,sizeof(t->incoming));t->inlen=0;t->inoverflow=0;t->responseKind=t->responseSeen=0;t->requestId[0]=0;
+  }
+  SIZE colon=0;while(colon<n&&p[colon]!=':')colon++;
+  if(t->apiSelected&&colon<n&&(boundedSame(p,colon,"x-request-id")||boundedSame(p,colon,"request-id")||boundedSame(p,colon,"x-ms-request-id")))
+   dcDiagRequestId(p+colon+1,n-colon-1,t->requestId);
   if(contains(p,n,"content-type:")){if(contains(p,n,"application/json"))t->contenttype=1;else if(contains(p,n,"text/html"))t->contenttype=2;else if(contains(p,n,"xml"))t->contenttype=3;}
   if(contains(p,n,"content-encoding:")){if(contains(p,n,"gzip"))t->encoding=1;else if(contains(p,n,"br"))t->encoding=2;else if(contains(p,n,"deflate"))t->encoding=3;else if(contains(p,n,"zstd"))t->encoding=4;}
  }
@@ -140,9 +164,17 @@ static int diagnosticDebug(void*e,int kind,char*p,SIZE n,void*data){
 }
 static SIZE diagnosticWrite(char*p,SIZE size,SIZE count,void*data){
  struct Trace*t=data;SIZE n=size*count;
- // This wrapper is installed only when the caller supplied a write callback.
+ // Wrap only an explicit callback plus userdata; otherwise preserve curl's
+ // implicit stdout userdata, which cannot be recovered through getinfo.
  if(!t||!t->write)return 0;
- if(t->apiSelected&&(!size||n/size==count))capture(t->incoming,&t->inlen,&t->inoverflow,p,n);
+ if(t->diagnosticId&&t->apiSelected&&(!size||n/size==count)){
+  if(n)t->responseSeen=1;
+  if(!t->responseKind)for(SIZE i=0;i<n;i++)if(p[i]!=' '&&p[i]!='\r'&&p[i]!='\n'&&p[i]!='\t'){
+   t->responseKind=p[i]=='{'||p[i]=='['?1:p[i]=='<'?2:3;break;
+  }
+  long status=0;int(*get)(void*,int,...)=fn("curl_easy_getinfo");
+  if(!get(t->easy,0x200002,&status)&&status>=400)capture(t->incoming,&t->inlen,&t->inoverflow,p,n);
+ }
  return t->write(p,size,count,t->writedata);
 }
 static void configureTrace(struct Trace*t){
@@ -150,40 +182,13 @@ static void configureTrace(struct Trace*t){
  if(t->apiSelected&&dcLogging()){
   inspectHeaders(t);
   set(t->easy,20094,diagnosticDebug);set(t->easy,10095,t);set(t->easy,41,(void*)1);
-  if(t->write){set(t->easy,20011,diagnosticWrite);set(t->easy,10001,t);}
+  if(t->write&&t->writeDataSet){set(t->easy,20011,diagnosticWrite);set(t->easy,10001,t);}
+  else{set(t->easy,20011,t->write);if(t->writeDataSet)set(t->easy,10001,t->writedata);}
  }else{
   set(t->easy,20094,t->debug);set(t->easy,10095,t->debugdata);set(t->easy,41,(void*)(SIZE)t->verbose);
-  set(t->easy,20011,t->write);set(t->easy,10001,t->writedata);
+  set(t->easy,20011,t->write);if(t->writeDataSet)set(t->easy,10001,t->writedata);
   set(t->easy,10023,t->headers);
  }
-}
-static const char* findText(const char*b,const char*key){
- for(const char*p=b;*p;p++){const char*q=p,*k=key;while(*q&&*k){char a=*q++,c=*k++;if(a>='A'&&a<='Z')a+=32;if(c>='A'&&c<='Z')c+=32;if(a!=c)break;if(!*k)return p;}}return 0;
-}
-static int publicWord(const char*p,int len){
- // Only short ordinary words may pass. Numbers, URLs, mixed-case strings,
- // uppercase codes, long strings and credential-like punctuation are removed.
- if(len<1||len>19)return 0;
- if(len==4&&p[0]=='H'&&p[1]=='T'&&p[2]=='T'&&p[3]=='P')return 1;
- for(int i=0;i<len;i++){char c=p[i];if(c>='a'&&c<='z')continue;if(i==0&&c>='A'&&c<='Z')continue;if(c=='-'&&i>0&&i+1<len)continue;return 0;}return 1;
-}
-static void publicServerText(struct Trace*t){
- if(t->inoverflow)return;const char*body=t->incoming;while(*body==' '||*body=='\r'||*body=='\n'||*body=='\t')body++;if(*body!='<')return;
- const char*p=findText(t->incoming,"<body");if(!p)return;while(*p&&*p!='>')p++;if(*p)p++;
- char b[512];int n=append(b,0,"playfab redacted-server-error:");
- while(*p&&n<390){
-  if(*p=='<'){
-   if(findText(p,"</body")==p)break;
-   if(findText(p,"<script")==p||findText(p,"<style")==p){const char*end=findText(p,findText(p,"<script")==p?"</script>":"</style>");if(!end)break;p=end;}
-   while(*p&&*p!='>')p++;if(*p)p++;continue;
-  }
-  if(*p=='&'){while(*p&&*p!=';'&&*p!='<'&&*p!=' ')p++;if(*p==';')p++;continue;}
-  if(*p==' '||*p=='\r'||*p=='\n'||*p=='\t'){p++;continue;}
-  const char*start=p;int len=0;while(*p&&*p!='<'&&*p!='&'&&*p!=' '&&*p!='\r'&&*p!='\n'&&*p!='\t'){p++;len++;}
-  int trimmed=len;while(trimmed>0&&(start[trimmed-1]=='.'||start[trimmed-1]==','||start[trimmed-1]==':'||start[trimmed-1]==';'||start[trimmed-1]=='!'))trimmed--;
-  n=append(b,n," ");if(publicWord(start,trimmed)){for(int i=0;i<trimmed&&n<430;i++)b[n++]=start[i];}else n=append(b,n,"[redacted]");
- }
- b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
 }
 // Locate an unescaped key at JSON root level. Nested profile or token data
 // cannot be mistaken for a permitted diagnostic field.
@@ -203,16 +208,6 @@ static const char* boolean(const char*p){
  if(p&&p[0]=='t'&&p[1]=='r'&&p[2]=='u'&&p[3]=='e'&&(p[4]==','||p[4]=='}'||p[4]==' '||p[4]=='\r'||p[4]=='\n'||p[4]=='\t'))return "true";
  if(p&&p[0]=='f'&&p[1]=='a'&&p[2]=='l'&&p[3]=='s'&&p[4]=='e'&&(p[5]==','||p[5]=='}'||p[5]==' '||p[5]=='\r'||p[5]=='\n'||p[5]=='\t'))return "false";
  return "unavailable";
-}
-static int jsonNumber(const char*p){
- if(!p||*p<'0'||*p>'9')return -1;int value=0,n=0;
- while(*p>='0'&&*p<='9'){if(++n>7)return -1;value=value*10+*p++-'0';}
- if(*p!=','&&*p!='}'&&*p!=' '&&*p!='\r'&&*p!='\n')return -1;return value;
-}
-static int identifier(const char*p,char*out){
- if(!p||*p++!='"')return 0;int n=0;
- while(*p&&*p!='"'&&n<100){char c=*p++;if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='_'))return 0;out[n++]=c;}
- if(*p!='"'||!n)return 0;out[n]=0;return 1;
 }
 static int hexlength(const char*p){
  if(!p||*p++!='"')return -1;int n=0;
@@ -234,9 +229,10 @@ static void requestFraming(struct Trace*t){
  n=append(b,n," declaredMatchesPayload=");n=append(b,n,!t->declaredSeen||t->declaredInvalid||payload<0?"unavailable":t->declaredBytes==(SIZE)payload?"true":"false");b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
 }
 static void traceResult(void*easy,long status){
- struct Trace*t=trace(easy,0);if(!t||!t->apiSelected)return;
+ struct Trace*t=trace(easy,0);if(!t)return;
+ if(t->selected){
  requestFraming(t);
- char b[512],name[101];int n=append(b,0,"playfab route=");n=append(b,n,t->operation);n=append(b,n," http=");n=number(b,n,status);
+ char b[512];int n=append(b,0,"playfab route=");n=append(b,n,t->operation);n=append(b,n," http=");n=number(b,n,status);
  if(t->selected){
  n=append(b,n," createAccount=");n=append(b,n,t->outoverflow?"unavailable":boolean(field(t->outgoing,"CreateAccount")));
  n=append(b,n," serviceSpecific=");n=append(b,n,t->outoverflow?"unavailable":boolean(field(t->outgoing,"TicketIsServiceSpecific")));
@@ -244,19 +240,8 @@ static void traceResult(void*easy,long status){
  const char*title=field(t->outgoing,"TitleId");n=append(b,n," titleMatches=");
  n=append(b,n,!t->outoverflow&&title&&title[0]=='"'&&title[1]=='8'&&title[2]=='3'&&title[3]=='1'&&title[4]=='5'&&title[5]=='6'&&title[6]=='"'?"true":"unavailable");
  }
- // Successful authentication responses can contain credentials. Nothing from
- // them is parsed or logged, beyond the already-known HTTP status.
- if(status>=400&&!t->inoverflow){int code=jsonNumber(field(t->incoming,"errorCode"));if(code>=0){n=append(b,n," errorCode=");n=number(b,n,code);}if(identifier(field(t->incoming,"error"),name)){n=append(b,n," error=");n=append(b,n,name);}}
- n=append(b,n," decodedBodyBytes=");n=number(b,n,t->inlen);b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
- if(status>=400){
-  n=append(b,0,"playfab response-format contentType=");n=number(b,n,t->contenttype);n=append(b,n," encoding=");n=number(b,n,t->encoding);
-  const unsigned char*p=(const unsigned char*)t->incoming;while(*p==' '||*p=='\r'||*p=='\n'||*p=='\t')p++;
-  n=append(b,n," bodyKind=");n=append(b,n,*p=='{'||*p=='['?"json":*p=='<'?"markup":p[0]==0x1f&&p[1]==0x8b?"gzip":*p?"other":"empty");
-  static const char*known[]={"Bad Request","Invalid Header","Invalid Hostname","Invalid Verb","Request Header Or Cookie Too Large","Access Denied","InvalidSteamTicket","AccountNotFound","SteamNotEnabledForTitle","TicketIsServiceSpecific","Invalid request","Content-Length","Content-Type","unsupported media type","application/json","application/octet-stream"};
-  for(int i=0;i<16;i++)if(contains(t->incoming,t->inlen,known[i])){n=append(b,n," hint=");n=append(b,n,known[i]);}
-  b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
-  publicServerText(t);
+ // Response details are emitted only by the correlated, allowlisted record.
+ b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
  }
- n=append(b,0,"playfab original-header observation count=");n=number(b,n,t->originalCTCount);n=append(b,n," originalKind=");n=number(b,n,t->originalCTKind);b[n++]='\r';b[n++]='\n';b[n]=0;logline(b);
  erase(t->incoming,sizeof(t->incoming));erase(t->outgoing,sizeof(t->outgoing));t->inlen=t->outlen=0;t->inoverflow=t->outoverflow=0;
 }

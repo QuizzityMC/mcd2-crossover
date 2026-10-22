@@ -92,7 +92,7 @@ def refresh_runtime():
     pending = HOME/'runtime-restart-pending'
     with open(HOME/'runtime-update.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        for name in ('error_codes.json','internal_errors.py','diagnostics.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py','bridge.py'):
+        for name in ('error_codes.json','internal_errors.py','diagnostics.py','diagnostic_schema.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py','bridge.py'):
             source = ROOT/name; dest = runtime/name
             data = source.read_bytes()
             if not dest.exists() or dest.read_bytes() != data:

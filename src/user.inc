@@ -94,29 +94,7 @@ static int dupUser(void*s,void*u,void**out){loghr("dupUser",0);if(!out)return IN
 static void closeUser(void*s,void*u){loghr("closeUser",0);}
 static int compareUser(void*s,void*a,void*b){return a==b?0:(U64)a<(U64)b?-1:1;}
 static int maxUsers(void*s,unsigned*out){if(!out)return INVALID;*out=1;return 0;}
-struct PD {void*async;U64 size;void*buffer;void*context;};
-struct TokenData {U64 tokenSize,signatureSize;void*token;void*signature;};
-struct Op {int kind,wide,index;char token[16384];};
-static char addIdentity,tokenIdentity;
-static int provider(unsigned op,const struct PD*d){struct Op*c=d->context;
- if(op==0)return aschedule(d->async,0);
- if(op==1){int r=c->kind==2?forceRenew():0;
-  if(!r&&!live())r=NOUSER;
-  if(!r&&c->kind==2){AcquireSRWLockExclusive(&credLock);copy(c->token,cred.tokens[c->index],16384);ReleaseSRWLockExclusive(&credLock);}
-  U64 n=c->kind==0?sizeof(void*):sizeof(struct TokenData)+(len(c->token)+1)*(c->wide?2:1);acomplete(d->async,r,r<0?0:n);return 0;}
- if(op==2){if(c->kind==0){*(void**)d->buffer=&handleMarker;return 0;}
- struct TokenData*t=d->buffer;U64 n=len(c->token);t->tokenSize=n+1;t->signatureSize=0;t->token=t+1;t->signature=0;
- if(c->wide){unsigned short*p=t->token;for(U64 i=0;i<=n;i++)p[i]=(unsigned char)c->token[i];}else copy(t->token,c->token,n+1);return 0;}
- if(op==3)return 0; // Work is bounded and already scheduled; it completes normally.
- if(op==4){memset(c,0,sizeof(*c));HeapFree(GetProcessHeap(),0,c);return 0;}
- return INVALID;
-}
-static int start(void*a,int kind,const char*t,int wide){if(!a||!initAsync())return FAIL;struct Op*c=HeapAlloc(GetProcessHeap(),8,sizeof(*c));if(!c)return FAIL;c->kind=kind;c->wide=wide;if(t)copy(c->token,t,len(t)+1);int r=abegin(a,c,kind?&tokenIdentity:&addIdentity,kind?"RealXboxToken":"RealXboxUser",provider);if(r<0){memset(c,0,sizeof(*c));HeapFree(GetProcessHeap(),0,c);}return r;}
-static int startToken(void*a,int index,int wide,int refresh){
- if(!a||!initAsync())return FAIL;struct Op*c=HeapAlloc(GetProcessHeap(),8,sizeof(*c));if(!c)return FAIL;
- c->kind=refresh?2:1;c->wide=wide;c->index=index;AcquireSRWLockExclusive(&credLock);copy(c->token,cred.tokens[index],16384);ReleaseSRWLockExclusive(&credLock);
- int r=abegin(a,c,&tokenIdentity,"RealXboxToken",provider);if(r<0){memset(c,0,sizeof(*c));HeapFree(GetProcessHeap(),0,c);}return r;
-}
+#include "token-provider.inc"
 static int addUser(void*s,unsigned options,void*a){loghr("XUserAddAsync options",options);int r=loadAuth();if(r<0){loghr("No valid real session",r);return r;}return start(a,0,0,0);}
 static int addResult(void*s,void*a,void**out){if(!out)return INVALID;*out=0;int r=aresult(a,&addIdentity,sizeof(void*),out,0);loghr("XUserAddResult",r);return r;}
 // The native WithUi thunk supplies exactly (self, requested XUID, async).
@@ -137,18 +115,7 @@ static int state(void*s,void*u,unsigned*out){loghr("state",0);if(!out)return INV
 static int age(void*s,void*u,unsigned*out){loghr("age",0);if(!out)return INVALID;*out=0;if(!valid(u))return NOUSER;*out=cred.age;return 0;}
 static int privilege(void*s,void*u,unsigned opts,unsigned id,unsigned char*has,unsigned*reason){if(!has)return INVALID;*has=0;if(reason)*reason=0xffffffff;if(!valid(u))return NOUSER;loghr("Privilege requested",id);if(opts||id>=256||!cred.privKnown)return NOTIMPL;*has=(cred.priv[id/8]>>(id%8))&1;if(reason)*reason=*has?0:0xffffffff;return 0;}
 static int tag(void*s,void*u,unsigned component,U64 size,char*b,U64*used){if(!valid(u))return NOUSER;if(component>=4||!b)return INVALID;loghr("Gamertag component",component);const char*t=cred.tags[component];if(component!=2&&!t[0])return NOTIMPL;U64 n=len(t)+1;if(used)*used=n;if(size<n)return (int)0x8007007a;copy(b,t,n);return 0;}
-static int domain(const char*h,const char*d){unsigned n=len(h),m=len(d);return eq(h,d)||(n>m&&h[n-m-1]=='.'&&eq(h+n-m,d));}
-static int tokenIndex(const char*url){char h[256]={0};if(!url)return -1;const char*p="https://";while(*p)if(*url++!=*p++)return -1;unsigned n=0;while(*url&&*url!='/'&&*url!='?'&&*url!='#'){char c=*url++;if(n>=254||c==':'||c=='@'||c=='\\')return -1;h[n++]=(c>='A'&&c<='Z')?c+32:c;}
- loghr(h,0);
- if(eq(h,"api.minecraftservices.com"))return 1;
- if(domain(h,"playfabapi.com"))return 2;
- if(domain(h,"xboxlive.com"))return 0;
- char message[256]={0};append(message,256,"Refused token host: ");append(message,256,h);loghr(message,NOTIMPL);return -1;
-}
-static int tokenAsync(void*s,void*u,unsigned opts,const char*method,const char*url,U64 nh,const void*headers,U64 nb,const void*body,void*a){if(opts&~1U)return NOTIMPL;if(u!=&handleMarker||(!(opts&1)&&!valid(u)))return NOUSER;int idx=tokenIndex(url);if(idx<0)return NOTIMPL;loghr("Service token requested",idx);return startToken(a,idx,0,opts&1);}
-static int token16(void*s,void*u,unsigned opts,const unsigned short*method,const unsigned short*url,U64 nh,const void*headers,U64 nb,const void*body,void*a){if(opts&~1U)return NOTIMPL;if(u!=&handleMarker||!url||(!(opts&1)&&!valid(u)))return NOUSER;char v[2048];unsigned i=0;for(;i<2047&&url[i];i++){if(url[i]>127)return NOTIMPL;v[i]=(char)url[i];}if(url[i])return INVALID;v[i]=0;int idx=tokenIndex(v);if(idx<0)return NOTIMPL;return startToken(a,idx,1,opts&1);}
-static int tokenSize(void*s,void*a,U64*n){return asize(a,n);}
-static int tokenResult(void*s,void*a,U64 size,void*b,void**ptr,U64*used){if(!ptr)return INVALID;*ptr=0;int r=aresult(a,&tokenIdentity,size,b,used);if(r>=0)*ptr=b;loghr("Service token result",r);return r;}
+#include "token-requests.inc"
 // This is a single-account provider. Multi-user/signature APIs remain limited.
 static int changeRegister(void*s,void*q,void*ctx,void*cb,U64*token){loghr("changeRegister",0);if(!token)return INVALID;*token=1;return 0;}
 static unsigned char changeUnregister(void*s,U64 token,unsigned char wait){loghr("changeUnregister",0);return token==1;}

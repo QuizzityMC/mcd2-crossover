@@ -18,6 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import diagnostic_schema
+
 HOME = Path.home() / 'Library/Application Support/DungeonsCrossOver'
 MAX_SECONDS = 3600
 MAX_LOG_BYTES = 256 * 1024
@@ -243,7 +245,7 @@ def stop(home=HOME, now=None):
     return status(home, now=now)
 
 
-def _internal_error_report(home):
+def _internal_error_report(home, now=None):
     if Path(home).is_symlink():
         return None
     catalog_path = Path(__file__).with_name("error_codes.json")
@@ -256,6 +258,24 @@ def _internal_error_report(home):
     for key in ('exit_status', 'system_code'):
         if type(error.get(key)) is int:
             report[key] = error[key]
+    # mtime is a file observation, not proof of when the error occurred.
+    now = time.time() if now is None else now
+    try:
+        modified = (Path(home) / 'internal-error.json').lstat().st_mtime
+        recording = _times(_read_json(Path(home) / STATE))
+        relation = 'unknown'
+        if modified > now:
+            relation = 'after_export_clock'
+        elif recording:
+            relation = ('predates_recording' if modified < recording['started']
+                        else 'at_or_after_recording_start')
+        report['time_context'] = {
+            'source': 'file_mtime', 'modified_unix_seconds': modified,
+            'recording_relation': relation, 'freshness': 'unverified',
+            'note': 'Saved error; file modification time is not the error occurrence time or evidence of a current failure.',
+        }
+    except OSError:
+        report['time_context'] = {'source': 'unavailable', 'freshness': 'unverified'}
     return report
 
 
@@ -294,7 +314,7 @@ def _app_fields(fields):
     if _member(fields.get('store'), STORES):
         result['store'] = fields['store']
     version = fields.get('app_version')
-    if isinstance(version, str) and re.fullmatch(r'\d{1,3}\.\d{1,3}\.\d{1,3}', version):
+    if isinstance(version, str) and re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){2,3}(?:-(?:alpha|beta|rc)\.\d{1,3})?', version):
         result['app_version'] = version
     for key, high in [('error_code', 65535), ('elapsed_seconds', MAX_SECONDS)]:
         if _integer(fields.get(key), 0, high):
@@ -349,16 +369,7 @@ def _freeze_report(home):
 def _host(value):
     # An unknown host can contain an account label or a secret. Export only
     # established public service domains, replacing every other hostname.
-    if not re.fullmatch(r'[a-z0-9.-]{1,180}', value):
-        return '[other-host]'
-    for domain in ('minecraftservices.com', 'xboxlive.com', 'playfabapi.com', 'live.com', 'microsoft.com'):
-        if value == domain:
-            return value
-        if value.endswith('.' + domain):
-            prefix = value[:-len(domain)-1]
-            allowed = {'api', 'vex', 'login', 'device.auth', 'user.auth', 'xsts.auth', 'www', '83156'}
-            return value if prefix in allowed else '[other-host]'
-    return '[other-host]'
+    return value if value in diagnostic_schema.HOSTS | diagnostic_schema.AUTH_HOSTS else '[other-host]'
 
 
 def _json_row(line, name):
@@ -484,12 +495,15 @@ def sanitize(data, name):
             continue
         prefix = ''
         if name in {'runtime.log','http.log'}:
-            envelope=re.match(r'^\[t=(\d{13}) p=(\d{1,10}) th=(\d{1,10})\] ',line)
+            envelope=diagnostic_schema.ENVELOPE.match(line)
             if envelope:
                 if any(int(v)>2**32-1 for v in envelope.groups()[1:]): omitted+=1; continue
                 prefix=envelope[0];line=line[envelope.end():]
         if name in {'auth.log', 'app.log'}:
             row = _json_row(line, name)
+        elif line.startswith('diag '):
+            structured = diagnostic_schema.parse(line)
+            row = diagnostic_schema.render(structured) if structured else None
         elif name == 'runtime.log':
             row = _runtime_row(line)
         else:
@@ -629,7 +643,7 @@ def export(home, output, now=None):
         reports[name] = report
         entries['logs/' + name] = safe
     # Error reports remain exportable even if no optional recording was started.
-    error_report = _internal_error_report(home)
+    error_report = _internal_error_report(home, now)
     if error_report:
         entries['internal-error.json'] = (json.dumps(error_report,indent=2)+'\n').encode()
     from runtime_capture import saved_report
@@ -646,10 +660,12 @@ def export(home, output, now=None):
     safe_settings = _app_fields({'store': settings.get('store'), 'app_version': settings.get('app_version')})
     manifest = {
         'format_version': 2,
+        'exporter_build': '20261022.2',
         'application': 'MCD2 Crossover',
         **safe_settings,
         'recording': {key: state[key] for key in ('started', 'expires', 'stopped') if state.get(key) is not None},
         'logs': reports,
+        'diagnostic_coverage': diagnostic_schema.coverage(entries, reports),
         'game_logs': game_report,
         'privacy': 'Helper logs contain allowlisted status fields. Game logs contain bounded diagnostic text with sensitive rows omitted and paths, URLs, emails and identifiers filtered. Review before sharing. Saved games, browser caches, session files, settings and Keychain data are not copied.',
     }

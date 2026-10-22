@@ -26,3 +26,5 @@ DeleteFileA
 GetCurrentProcessId
 
 GetCurrentThreadId
+
+GetModuleHandleA

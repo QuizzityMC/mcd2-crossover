@@ -81,7 +81,7 @@ class AuthTests(unittest.TestCase):
         scripts=resources/'scripts'; scripts.mkdir()
         runtime=self.home/'runtime'; runtime.mkdir()
         source=Path(__file__).parents[1]
-        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py')
+        names=('bridge.py','internal_errors.py','error_codes.json','diagnostics.py','diagnostic_schema.py','freeze_capture.py','runtime_capture.py','bounded_capture.py','capture_selected.py','localization.py','session_watch.py')
         for name in names: shutil.copyfile(source/'helper'/name,root/name)
         for name in ('crossover.py','game_process.py'): shutil.copyfile(source/'scripts'/name,scripts/name)
         build=resources/'build'; build.mkdir()

@@ -40,6 +40,8 @@ static void loghr(const char*msg,int hr){
  line[n++]='\r';line[n++]='\n';
  H f=CreateFileA(logpath,4,3,0,4,128,0);if(f!=(H)-1){DWORD w;WriteFile(f,line,n,&w,0);CloseHandle(f);}
 }
+#include "runtime-diagnostics.inc"
+#include "native-http-diagnostics.inc"
 static H loadSibling(const char*name){char path[1024]={0};DWORD n=GetModuleFileNameA(self,path,1024);if(!n||n>=1024)return 0;while(n&&path[n-1]!='\\'&&path[n-1]!='/')n--;path[n]=0;append(path,1024,name);return LoadLibraryA(path);}
 static int ensureReal(void){if(real)return 1;real=loadSibling("xgameruntime-native.dll");if(!real)return 0;nativeInit=GetProcAddress(real,"InitializeApiImplEx2");nativeQuery=GetProcAddress(real,"QueryApiImpl");return nativeInit&&nativeQuery;}
 
@@ -66,6 +68,9 @@ int InitializeApiImplEx2(U64 a,U64 b,U64 mode,void*options){
  char localConfig[2048]={0};DWORD pathSize=GetModuleFileNameA(self,localConfig,sizeof(localConfig));
  if(!pathSize||pathSize>=sizeof(localConfig))return (int)0x8007007e;while(pathSize&&localConfig[pathSize-1]!='\\'&&localConfig[pathSize-1]!='/')pathSize--;localConfig[pathSize]=0;append(localConfig,sizeof(localConfig),"..\\..\\..\\MicrosoftGame.config");
  struct{unsigned version,flags;const char*file;} opt={1,0,localConfig};
+ /* This may be called FROM HCInitialize while its singleton mutex is held.
+  * A successful nativeInit does not mean the outer HCInitialize has returned.
+  * Observe only from later token/status paths, never from this init stack. */
  int r=nativeInit(a,b,mode,options?options:&opt);loghr("Native runtime initialization",r);
  return r;
 }
@@ -201,7 +206,7 @@ extern void pass125(void);
 extern void pass126(void);
 extern void pass127(void);
 static void* threadvt[128]={pass0,pass1,pass2,pass3,pass4,pass5,pass6,pass7,pass8,pass9,pass10,pass11,pass12,pass13,pass14,pass15,pass16,pass17,pass18,pass19,pass20,pass21,pass22,pass23,pass24,pass25,pass26,pass27,pass28,pass29,pass30,pass31,pass32,pass33,pass34,pass35,pass36,pass37,pass38,pass39,pass40,pass41,pass42,pass43,pass44,pass45,pass46,pass47,pass48,pass49,pass50,pass51,pass52,pass53,pass54,pass55,pass56,pass57,pass58,pass59,pass60,pass61,pass62,pass63,pass64,pass65,pass66,pass67,pass68,pass69,pass70,pass71,pass72,pass73,pass74,pass75,pass76,pass77,pass78,pass79,pass80,pass81,pass82,pass83,pass84,pass85,pass86,pass87,pass88,pass89,pass90,pass91,pass92,pass93,pass94,pass95,pass96,pass97,pass98,pass99,pass100,pass101,pass102,pass103,pass104,pass105,pass106,pass107,pass108,pass109,pass110,pass111,pass112,pass113,pass114,pass115,pass116,pass117,pass118,pass119,pass120,pass121,pass122,pass123,pass124,pass125,pass126,pass127};
-static int asyncStatus(struct Proxy*p,void*a,unsigned char wait){int(*f)(void*,void*,unsigned char)=(*(void***)p->obj)[3];int r=f(p->obj,a,wait);if(r<0&&(unsigned)r!=0x8000000a)loghr("Native async failure after user login",r);return r;}
+static int asyncStatus(struct Proxy*p,void*a,unsigned char wait){int(*f)(void*,void*,unsigned char)=(*(void***)p->obj)[3];int r=f(p->obj,a,wait);if(r<0&&(unsigned)r!=0x8000000a){nativeHttpObserve();nativeFailure(r);}return r;}
 static void wrapThread(void**p){threadvt[3]=asyncStatus;struct Proxy*w=HeapAlloc(GetProcessHeap(),0,sizeof(*w));if(w){w->vt=threadvt;w->obj=*p;*p=w;}}
 static void* systemvt[128]={pass0,pass1,pass2,pass3,pass4,pass5,pass6,pass7,pass8,pass9,pass10,pass11,pass12,pass13,pass14,pass15,pass16,pass17,pass18,pass19,pass20,pass21,pass22,pass23,pass24,pass25,pass26,pass27,pass28,pass29,pass30,pass31,pass32,pass33,pass34,pass35,pass36,pass37,pass38,pass39,pass40,pass41,pass42,pass43,pass44,pass45,pass46,pass47,pass48,pass49,pass50,pass51,pass52,pass53,pass54,pass55,pass56,pass57,pass58,pass59,pass60,pass61,pass62,pass63,pass64,pass65,pass66,pass67,pass68,pass69,pass70,pass71,pass72,pass73,pass74,pass75,pass76,pass77,pass78,pass79,pass80,pass81,pass82,pass83,pass84,pass85,pass86,pass87,pass88,pass89,pass90,pass91,pass92,pass93,pass94,pass95,pass96,pass97,pass98,pass99,pass100,pass101,pass102,pass103,pass104,pass105,pass106,pass107,pass108,pass109,pass110,pass111,pass112,pass113,pass114,pass115,pass116,pass117,pass118,pass119,pass120,pass121,pass122,pass123,pass124,pass125,pass126,pass127};
 static unsigned char systemValid(struct Proxy*p,void*h){
@@ -218,6 +223,6 @@ int QueryApiImpl(const void*a,const void*b,void**p){
  if(!ensureReal())return (int)0x8007007e;int r=nativeQuery(a,b,p);r=tryNetwork(a,b,p,r);if(r>=0&&p&&*p)wrapFeature(a,b,p);if(r<0)loghr("Native interface request failed",r);if(r>=0&&p&&*p&&cls==0x073b7dcb)wrapThread(p);if(r>=0&&p&&*p&&cls==0xe349bd1a)wrapSystem(p);return r;
 }
 void UninitializeApiImpl(void){if(ensureReal()){void(*f)(void)=GetProcAddress(real,"UninitializeApiImpl");f();}}
-int DllCanUnloadNow(void){if(!ensureReal())return 1;int(*f)(void)=GetProcAddress(real,"DllCanUnloadNow");return f();}
+int DllCanUnloadNow(void){if(nativeHttpCannotUnload())return 1;if(!ensureReal())return 1;int(*f)(void)=GetProcAddress(real,"DllCanUnloadNow");return f();}
 void XErrorReport(int code,const unsigned short*message){if(ensureReal()){void(*f)(int,const unsigned short*)=GetProcAddress(real,"XErrorReport");f(code,message);}}
 int DllMain(H module,DWORD reason,void*reserved){if(reason==1)self=module;return 1;}

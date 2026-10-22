@@ -8,6 +8,14 @@ Repairs Steam startup, runtime dependencies, networking and Microsoft/Xbox sign-
 
 **[Download MCD2 Crossover →](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.1.8.1)**
 
+## Beta 2
+
+[Try 0.2.0 Beta 2](https://github.com/Wanzho/mcd2-crossover/releases/tag/v0.2.0-beta.2) if you want to help investigate sign-in and **Playing Offline** problems. It keeps Beta 1’s Wine crash fix and adds more useful request diagnostics. Check for Updates does not offer beta releases.
+
+After replacing the app, quit the game and run **Set Up** once for the same bottle to install the new adapters. Your saved sign-in stays in place. To send a report, choose **Start Recording**, reproduce the problem, then **Save Logs**.
+
+This is not a confirmed fix for error 0056 or offline play. The corrected recording code has passed automated tests but still needs a recording-on game test.
+
 ## Install
 
 Install CrossOver, Windows Steam and Minecraft Dungeons II first. Open Steam and sign in at least once.

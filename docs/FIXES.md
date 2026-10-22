@@ -31,3 +31,11 @@ CrossOver can also register Visual C++ 14.42 while supplying Wine’s builtin DL
 Older-library trials, SteamDeck flags, custom certificate-path overrides and forced Content-Type changes didn’t help. They aren’t included. Your Wine overrides and controller mods are left alone.
 
 If a missing-component prompt returns after verifying or reinstalling the game, open MCD2 Crossover and choose **Repair Setup…** from its menu.
+
+## 0.2.0 Beta 2
+
+Adds request IDs, service hosts, HTTP status, recognized server error identifiers and recording coverage to support logs. Missing responses remain explicit rather than being inferred from successful token creation. Credentials and raw response bodies are excluded.
+
+The first local diagnostic candidate crashed when it registered an HTTP observer from inside runtime initialization. Beta 2 removes that nested registration and schedules a worker instead. Tests cover initialization re-entry, concurrent registration, module lifetime, recording changes and requests that finish before registration. Early requests can still be missed.
+
+The earlier candidate reached gameplay with recording off, but showed Playing Offline. Error 0056 did not reproduce locally. Beta 2’s corrected recording-on path has not yet been verified in the game.

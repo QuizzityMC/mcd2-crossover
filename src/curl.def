@@ -62,7 +62,7 @@ curl_multi_notify_disable=curl-compat.curl_multi_notify_disable @59
 curl_multi_notify_enable=curl-compat.curl_multi_notify_enable @60
 curl_multi_perform=curl-compat.curl_multi_perform @61
 curl_multi_poll=curl-compat.curl_multi_poll @62
-curl_multi_remove_handle=curl-compat.curl_multi_remove_handle @63
+curl_multi_remove_handle @63
 curl_multi_setopt=curl-compat.curl_multi_setopt @64
 curl_multi_socket=curl-compat.curl_multi_socket @65
 curl_multi_socket_action=curl-compat.curl_multi_socket_action @66

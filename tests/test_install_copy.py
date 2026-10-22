@@ -24,7 +24,7 @@ class CopyInstallationTests(unittest.TestCase):
         self.bottle = self.user/'Library/Application Support/CrossOver/Bottles/Test'
         self.source = Path(self.temp.name)/'source'
         for name in ('build/keychain','build/signin-ui.exe','build/find-target.exe','build/identity-baseline.exe','build/identity-context.exe','build/xgameruntime.dll','build/XCurl.dll',
-                     'helper/bridge.py','helper/diagnostics.py', 'helper/freeze_capture.py','helper/runtime_capture.py','helper/bounded_capture.py','helper/capture_selected.py','helper/localization.py','helper/internal_errors.py','helper/error_codes.json',
+                     'helper/bridge.py','helper/diagnostics.py','helper/diagnostic_schema.py', 'helper/freeze_capture.py','helper/runtime_capture.py','helper/bounded_capture.py','helper/capture_selected.py','helper/localization.py','helper/internal_errors.py','helper/error_codes.json',
                      'helper/session_watch.py','scripts/game_process.py','scripts/crossover.py'):
             file = self.source/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(b'synthetic build fixture')
         env = self.home/'python/bin/python';env.parent.mkdir(parents=True);env.write_bytes(b'not executed')
@@ -108,6 +108,7 @@ class CopyInstallationTests(unittest.TestCase):
         self.assertEqual(self.executable.read_bytes(),b'untouched synthetic game')
         self.assertEqual((self.home/'session.bin').read_bytes(),b'synthetic session left intact')
         self.assertTrue((self.home/'runtime/diagnostics.py').is_file())
+        self.assertTrue((self.home/'runtime/diagnostic_schema.py').is_file())
 
     def test_steam_setup_preserves_launch_settings_for_other_games(self):
         self.copy('Win64','Dungeons-Win64-Shipping.exe')
