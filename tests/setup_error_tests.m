@@ -58,7 +58,7 @@ int main(int argc,const char **argv) { @autoreleasepool {
  NSString *whisky=[fixture stringByAppendingPathComponent:@"Other Apps/Whisky.app"];
  NSString *whiskyBin=[whisky stringByAppendingPathComponent:@"Contents/Resources"];
  [NSFileManager.defaultManager createDirectoryAtPath:whiskyBin withIntermediateDirectories:YES attributes:nil error:nil];
- [@{@"CFBundleIdentifier":@"com.franke.Whisky"} writeToFile:[whisky stringByAppendingPathComponent:@"Contents/Info.plist"] atomically:YES];
+ [@{@"CFBundleIdentifier":@"com.frankea.Whisky"} writeToFile:[whisky stringByAppendingPathComponent:@"Contents/Info.plist"] atomically:YES];
  NSString *whiskyCmd=[whiskyBin stringByAppendingPathComponent:@"WhiskyCmd"];
  [@"synthetic, never executed" writeToFile:whiskyCmd atomically:YES encoding:NSUTF8StringEncoding error:nil];
  [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions:@0755} ofItemAtPath:whiskyCmd error:nil];
