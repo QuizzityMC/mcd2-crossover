@@ -209,7 +209,8 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
 - (NSInteger)crossOverErrorCode {
     if (!self.crossoverApp.length) return 1001;
     NSDictionary *info=[NSDictionary dictionaryWithContentsOfFile:[self.crossoverApp stringByAppendingPathComponent:@"Contents/Info.plist"]];
-    return [info[@"CFBundleIdentifier"] isEqual:@"com.codeweavers.CrossOver"] ? 1003 : 1002;
+    NSString *identifier = [info[@"CFBundleIdentifier"] isKindOfClass:NSString.class] ? info[@"CFBundleIdentifier"] : nil;
+    return MCD2IsSupportedRuntimeIdentifier(identifier) ? 1003 : 1002;
 }
 - (void)addErrorDetailsToStack:(NSStackView *)stack {
     self.errorView=[NSStackView new]; self.errorView.orientation=NSUserInterfaceLayoutOrientationVertical;
