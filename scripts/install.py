@@ -18,7 +18,7 @@ import internal_errors
 ERROR_STAGE = "validation"
 HOME = Path.home()/'Library/Application Support/DungeonsCrossOver'
 VERSION = '0.2.0-beta.2'
-from crossover import crossover_app
+from crossover import crossover_app, bottle_root
 HASHES = {
     'xgameruntime-native.dll':'815d0c5b0aa5c84eb6104168da551a4922f49f8dd02dbdf3bbc5119beec11b59',
     'xgameruntime-adapter-thunks.dll':'862236063d4872f43435384eb4030dfa4b1fb6fbe91fe93969557de18c5f9601',
@@ -62,11 +62,12 @@ def main():
     parser.add_argument('--check-only',action='store_true',help='Check the selected game without installing or downloading anything.')
     parser.add_argument('--ignore-other-game-detection',action='store_true',help='Continue past other-game or uncertain process warnings. Steam setup restarts Steam in this bottle. A confirmed running selected copy is always refused.')
     args=parser.parse_args();os.umask(0o077)
-    bottle=Path.home()/'Library/Application Support/CrossOver/Bottles'/args.bottle
+    selected_crossover = crossover_app()
+    bottles = bottle_root(selected_crossover)
+    bottle = bottles/args.bottle
     selected=args.game or bottle/'drive_c/Program Files (x86)/Steam/steamapps/common/Minecraft Dungeons II'
     copy=inspect_copy(selected,args.store)
     game=Path(copy['root']);binary=Path(copy['binary']);store=copy['store']
-    selected_crossover = crossover_app()
     def check_running(shared_steam=False):
         require_idle(copy['executable'], bottle, shared_steam=shared_steam,
                      ignore_other=args.ignore_other_game_detection)

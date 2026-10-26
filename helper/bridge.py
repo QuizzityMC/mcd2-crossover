@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_dss_signature
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent / 'scripts'))
-from crossover import wine
+from crossover import wine, bottle_root
 import diagnostics
 import internal_errors
 import localization
@@ -408,7 +408,7 @@ def launch(bottle):
     settings = json.loads((HOME/'settings.json').read_text())
     command,working_directory=launch_command(settings,bottle)
     from session_watch import steam_was_running
-    bottle_path = Path.home()/'Library/Application Support/CrossOver/Bottles'/bottle
+    bottle_path = bottle_root()/bottle
     owned = settings.get('store','steam') == 'steam' and not steam_was_running(bottle_path)
     watcher = [sys.executable,'-I','-B',str(ROOT/'session_watch.py'),
                '--bottle',bottle,'--game',settings['game']]
@@ -443,7 +443,7 @@ def launch_command(settings,bottle):
     # Use only the validated file in the selected game. A stale or hand-edited
     # saved Windows directory must never redirect launch to another executable.
     selected=selected.resolve()
-    drive=(Path.home()/'Library/Application Support/CrossOver/Bottles'/bottle/'drive_c').resolve()
+    drive=(bottle_root()/bottle/'drive_c').resolve()
     try:target='C:\\'+str(selected.relative_to(drive)).replace('/','\\')
     except ValueError:target='Z:'+str(selected).replace('/','\\')
     return command+[target,'Dungeons','-windowed','-ResX=1600','-ResY=900'],str(game)

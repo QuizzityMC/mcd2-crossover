@@ -148,6 +148,7 @@ def safe_report(doc):
 
 def capture(home, *, inspect=None, run=None, windows_capture=None):
     import diagnostics as d
+    from crossover import bottle_root
     import runtime_capture as runtime
     windows_capture = windows_capture or runtime.capture
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
@@ -183,7 +184,7 @@ def capture(home, *, inspect=None, run=None, windows_capture=None):
             return finish('settings_missing')
         executable = binary / ('Dungeons-WinGDK-Shipping.exe' if binary.name=='WinGDK' else 'Dungeons-Win64-Shipping.exe')
         if not executable.is_file(): return finish('settings_missing')
-        bottle = Path.home()/'Library/Application Support/CrossOver/Bottles'/bottle_name
+        bottle = bottle_root()/bottle_name
         identity = inspect(executable,bottle)
         if identity.ambiguous or len(identity.selected_pids)>1: return finish('ambiguous_game')
         if not identity.selected_pids: return finish('game_not_running')

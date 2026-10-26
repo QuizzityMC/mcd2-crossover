@@ -2,6 +2,16 @@
 static BOOL MCD2IsSupportedRuntimeIdentifier(NSString *identifier) {
     return [identifier isEqual:@"com.codeweavers.CrossOver"] || [identifier isEqual:@"com.franke.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"];
 }
+static NSString *MCD2BottleRootForIdentifier(NSString *identifier) {
+    if ([identifier isEqual:@"com.franke.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"])
+        return [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/Containers/" stringByAppendingPathComponent:[identifier stringByAppendingPathComponent:@"/Bottles"]]];
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/CrossOver/Bottles"];
+}
+static NSString *MCD2BottleRoot(NSString *path) {
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"Contents/Info.plist"]];
+    NSString *identifier = [info[@"CFBundleIdentifier"] isKindOfClass:NSString.class] ? info[@"CFBundleIdentifier"] : nil;
+    return MCD2BottleRootForIdentifier(identifier);
+}
 static NSString *MCD2RuntimeExecutableAtPath(NSString *path, NSString *identifier) {
     NSArray<NSString *> *relative = [identifier isEqual:@"com.codeweavers.CrossOver"] ?
         @[@"Contents/SharedSupport/CrossOver/bin/wine"] :

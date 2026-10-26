@@ -19,7 +19,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'scripts'))
-from crossover import wine
+from crossover import wine, bottle_root
 from game_process import _open_files, _bottle_file, _other_bottle_file, _same_file
 
 HOME = Path.home() / 'Library/Application Support/DungeonsCrossOver'
@@ -334,7 +334,7 @@ def main():
     p = argparse.ArgumentParser(); p.add_argument('--bottle', required=True); p.add_argument('--game', required=True)
     p.add_argument('--owned-steam', action='store_true'); args = p.parse_args()
     os.umask(0o077)
-    root = Path.home() / 'Library/Application Support/CrossOver/Bottles'
+    root = bottle_root()
     bottle = (root / args.bottle).resolve(); game = Path(args.game).resolve()
     if bottle.parent != root.resolve() or not (bottle / 'cxbottle.conf').is_file() or not game.is_dir(): return
     lock = HOME / ('session-watch-' + hashlib.sha256(str(bottle).encode()).hexdigest()[:16] + '.lock')

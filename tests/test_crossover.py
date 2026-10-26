@@ -54,6 +54,12 @@ class CrossOverSelectionTests(unittest.TestCase):
         self.save(app)
         self.assertEqual(crossover.crossover_app(), app.resolve())
         self.assertEqual(crossover.wine(), str(app.resolve()/crossover.WHISKY_CMD_RELATIVE))
+        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.franke.Whisky/Bottles')
+
+    def test_legacy_whisky_bundle_uses_legacy_container(self):
+        app = self.app('Whisky Legacy.app', 'com.isaacmarovitz.Whisky', crossover.WHISKY_CMD_RELATIVE)
+        self.save(app)
+        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.isaacmarovitz.Whisky/Bottles')
 
     def test_missing_saved_app_does_not_fall_back(self):
         self.save(self.root/'Removed.app')

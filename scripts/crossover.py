@@ -11,6 +11,11 @@ RUNTIMES = {
     'com.franke.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
     'com.isaacmarovitz.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
 }
+BOTTLE_ROOTS = {
+    'com.codeweavers.CrossOver': ('Library', 'Application Support', 'CrossOver', 'Bottles'),
+    'com.franke.Whisky': ('Library', 'Containers', 'com.franke.Whisky', 'Bottles'),
+    'com.isaacmarovitz.Whisky': ('Library', 'Containers', 'com.isaacmarovitz.Whisky', 'Bottles'),
+}
 
 
 def _resolve_runtime(app, identifier):
@@ -21,12 +26,16 @@ def _resolve_runtime(app, identifier):
     return None
 
 
+def _identifier(app):
+    with (app / 'Contents/Info.plist').open('rb') as stream:
+        info = plistlib.load(stream)
+    return info.get('CFBundleIdentifier') if isinstance(info, dict) else None
+
+
 def validate_app(path):
     app = Path(path).expanduser().resolve()
     try:
-        with (app / 'Contents/Info.plist').open('rb') as stream:
-            info = plistlib.load(stream)
-            identifier = info.get('CFBundleIdentifier') if isinstance(info, dict) else None
+        identifier = _identifier(app)
         if identifier not in RUNTIMES:
             raise ValueError('The selected app is not CrossOver or Whisky.')
         runtime = _resolve_runtime(app, identifier)
@@ -38,13 +47,24 @@ def validate_app(path):
 
 
 def _wine_executable(app):
-    with (app / 'Contents/Info.plist').open('rb') as stream:
-        info = plistlib.load(stream)
-    identifier = info.get('CFBundleIdentifier') if isinstance(info, dict) else None
+    identifier = _identifier(app)
     runtime = _resolve_runtime(app, identifier)
     if runtime is None:
         raise ValueError('The selected app is missing its runtime executable.')
     return runtime
+
+
+def bottle_root(app=None):
+    if app is None:
+        selected = crossover_app()
+    else:
+        try:
+            selected = validate_app(app)
+        except ValueError:
+            return Path.home().joinpath(*BOTTLE_ROOTS['com.codeweavers.CrossOver'])
+    identifier = _identifier(selected)
+    relative = BOTTLE_ROOTS.get(identifier, BOTTLE_ROOTS['com.codeweavers.CrossOver'])
+    return Path.home().joinpath(*relative)
 
 
 def crossover_app():

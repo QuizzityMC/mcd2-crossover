@@ -561,7 +561,8 @@ def _game_log_entries(settings, metadata_only=False):
     bottle = settings.get('bottle')
     if not isinstance(bottle, str) or not bottle or bottle in ('.', '..') or '/' in bottle or '\\' in bottle:
         return entries, report
-    root = Path.home() / 'Library/Application Support/CrossOver/Bottles' / bottle
+    from crossover import bottle_root
+    root = bottle_root() / bottle
     try:
         root = root.resolve(strict=True)
         users = root / 'drive_c/users'
