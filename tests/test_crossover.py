@@ -50,11 +50,11 @@ class CrossOverSelectionTests(unittest.TestCase):
             self.assertEqual(crossover.crossover_app(),selected.resolve())
 
     def test_whisky_app_selection_is_supported(self):
-        app = self.app('Whisky.app', 'com.franke.Whisky', crossover.WHISKY_CMD_RELATIVE)
+        app = self.app('Whisky.app', 'com.frankea.Whisky', crossover.WHISKY_CMD_RELATIVE)
         self.save(app)
         self.assertEqual(crossover.crossover_app(), app.resolve())
         self.assertEqual(crossover.wine(), str(app.resolve()/crossover.WHISKY_CMD_RELATIVE))
-        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.franke.Whisky/Bottles')
+        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.frankea.Whisky/Bottles')
 
     def test_legacy_whisky_bundle_uses_legacy_container(self):
         app = self.app('Whisky Legacy.app', 'com.isaacmarovitz.Whisky', crossover.WHISKY_CMD_RELATIVE)
