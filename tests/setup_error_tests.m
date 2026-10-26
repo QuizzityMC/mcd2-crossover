@@ -55,6 +55,14 @@ int main(int argc,const char **argv) { @autoreleasepool {
  [@"synthetic, never executed" writeToFile:winePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
  [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions:@0755} ofItemAtPath:winePath error:nil];
  check(MCD2CrossOverError(custom)==nil,"native picker accepts renamed CrossOver outside Applications");
+ NSString *whisky=[fixture stringByAppendingPathComponent:@"Other Apps/Whisky.app"];
+ NSString *whiskyBin=[whisky stringByAppendingPathComponent:@"Contents/Resources"];
+ [NSFileManager.defaultManager createDirectoryAtPath:whiskyBin withIntermediateDirectories:YES attributes:nil error:nil];
+ [@{@"CFBundleIdentifier":@"com.frankea.Whisky"} writeToFile:[whisky stringByAppendingPathComponent:@"Contents/Info.plist"] atomically:YES];
+ NSString *whiskyCmd=[whiskyBin stringByAppendingPathComponent:@"WhiskyCmd"];
+ [@"synthetic, never executed" writeToFile:whiskyCmd atomically:YES encoding:NSUTF8StringEncoding error:nil];
+ [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions:@0755} ofItemAtPath:whiskyCmd error:nil];
+ check(MCD2CrossOverError(whisky)==nil,"native picker accepts Whisky runtime app");
  [NSFileManager.defaultManager createDirectoryAtPath:support withIntermediateDirectories:YES attributes:nil error:nil];
  [[NSJSONSerialization dataWithJSONObject:@{@"path":custom} options:0 error:nil] writeToFile:[support stringByAppendingPathComponent:@"crossover-app.json"] atomically:YES];
  check([MCD2FindCrossOver(support) isEqual:custom],"saved custom CrossOver restored on next launch");

@@ -119,7 +119,7 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
     support = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/DungeonsCrossOver"];
     self.crossoverApp = MCD2FindCrossOver(support);
     self.runtimeError = MCD2PrepareEmbeddedRuntime(NSBundle.mainBundle.bundlePath, resources);
-    self.bottleRoot = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/CrossOver/Bottles"];
+    self.bottleRoot = MCD2BottleRoot(self.crossoverApp);
     MCD2ConfigureLocalization(resources,[support stringByAppendingPathComponent:@"ui-language"]);
     __weak MCD2App *weakSelf = self;
     [[CrossoverUpdater shared] startWithBusyCheck:^BOOL { return weakSelf.working || weakSelf.diagnosticsBusy; }];
@@ -209,7 +209,8 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
 - (NSInteger)crossOverErrorCode {
     if (!self.crossoverApp.length) return 1001;
     NSDictionary *info=[NSDictionary dictionaryWithContentsOfFile:[self.crossoverApp stringByAppendingPathComponent:@"Contents/Info.plist"]];
-    return [info[@"CFBundleIdentifier"] isEqual:@"com.codeweavers.CrossOver"] ? 1003 : 1002;
+    NSString *identifier = [info[@"CFBundleIdentifier"] isKindOfClass:NSString.class] ? info[@"CFBundleIdentifier"] : nil;
+    return MCD2IsSupportedRuntimeIdentifier(identifier) ? 1003 : 1002;
 }
 - (void)addErrorDetailsToStack:(NSStackView *)stack {
     self.errorView=[NSStackView new]; self.errorView.orientation=NSUserInterfaceLayoutOrientationVertical;
@@ -377,20 +378,35 @@ static BOOL exists(NSString *path) { return path && [NSFileManager.defaultManage
             if (saved) saved = [data writeToFile:[support stringByAppendingPathComponent:@"crossover-app.json"] options:NSDataWritingAtomic error:&error];
             if (!saved) self.crossoverPreferenceError = [@"Could not save the CrossOver selection: " stringByAppendingString:error.localizedDescription ?: @"Unknown error"];
         }
+        self.bottleRoot = MCD2BottleRoot(self.crossoverApp);
+        if (self.setupMode && self.bottles) [self reloadBottleChoices];
         if (!self.setupMode) { [self showSetup:YES]; }
         [self refreshCrossOverLabel]; [self licenseChanged:nil]; [self resizeCopySheet];
     }];
 }
+- (BOOL)isBottleDirectory:(NSString *)path {
+    return exists([path stringByAppendingPathComponent:@"cxbottle.conf"])
+        || exists([path stringByAppendingPathComponent:@"Metadata.plist"]);
+}
+- (void)reloadBottleChoices {
+    NSString *previousBottle = self.bottles.titleOfSelectedItem;
+    NSMutableArray *names = [NSMutableArray new];
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.bottleRoot error:nil]) {
+        if ([self isBottleDirectory:[self.bottleRoot stringByAppendingPathComponent:name]]) [names addObject:name];
+    }
+    [names sortUsingSelector:@selector(localizedStandardCompare:)];
+    [self.bottles removeAllItems];
+    [self.bottles addItemsWithTitles:names];
+    NSString *savedBottle = settings()[@"bottle"];
+    if ([names containsObject:previousBottle]) [self.bottles selectItemWithTitle:previousBottle];
+    else if ([names containsObject:savedBottle]) [self.bottles selectItemWithTitle:savedBottle];
+    else if ([names containsObject:@"Steam"]) [self.bottles selectItemWithTitle:@"Steam"];
+    [self bottleChanged:nil];
+}
 - (void)addCopySelectionControlsToStack:(NSStackView *)stack {
     [self addCrossOverSelectionToStack:stack];
     self.bottles = [NSPopUpButton new]; self.bottles.target = self; self.bottles.action = @selector(bottleChanged:); self.bottles.accessibilityLabel = L(@"CrossOver bottle");
-    NSMutableArray *names = [NSMutableArray new];
-    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.bottleRoot error:nil])
-        if (exists([[self.bottleRoot stringByAppendingPathComponent:name] stringByAppendingPathComponent:@"cxbottle.conf"])) [names addObject:name];
-    [names sortUsingSelector:@selector(localizedStandardCompare:)]; [self.bottles addItemsWithTitles:names];
-    NSString *savedBottle = settings()[@"bottle"];
-    if ([names containsObject:savedBottle]) [self.bottles selectItemWithTitle:savedBottle];
-    else if ([names containsObject:@"Steam"]) [self.bottles selectItemWithTitle:@"Steam"];
+    [self reloadBottleChoices];
     NSStackView *row = [NSStackView stackViewWithViews:@[label(L(@"CrossOver Bottle"),13,NSFontWeightMedium),self.bottles]];
     row.orientation = NSUserInterfaceLayoutOrientationHorizontal; row.spacing = 16; [self.bottles.widthAnchor constraintGreaterThanOrEqualToConstant:260].active = YES;
     [stack addArrangedSubview:row];

@@ -23,14 +23,14 @@ class CrossOverSelectionTests(unittest.TestCase):
         self.addCleanup(self.home_patch.stop)
         self.addCleanup(self.env_patch.stop)
 
-    def app(self, name='External Apps/crossover custom.app', identity='com.codeweavers.CrossOver'):
+    def app(self, name='External Apps/crossover custom.app', identity='com.codeweavers.CrossOver', runtime_relative=None):
         app = self.root / name
         (app/'Contents').mkdir(parents=True)
         (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':identity}))
-        wine = app/crossover.WINE_RELATIVE
-        wine.parent.mkdir(parents=True)
-        wine.write_text('#!/bin/sh\nexit 99\n')  # Must never execute during discovery.
-        wine.chmod(0o755)
+        runtime = app/(runtime_relative or crossover.WINE_RELATIVE)
+        runtime.parent.mkdir(parents=True)
+        runtime.write_text('#!/bin/sh\nexit 99\n')  # Must never execute during discovery.
+        runtime.chmod(0o755)
         return app
 
     def save(self, app):
@@ -49,16 +49,28 @@ class CrossOverSelectionTests(unittest.TestCase):
         with patch.dict(os.environ, {'MCD2_CROSSOVER_APP':str(selected)}):
             self.assertEqual(crossover.crossover_app(),selected.resolve())
 
+    def test_whisky_app_selection_is_supported(self):
+        app = self.app('Whisky.app', 'com.frankea.Whisky', crossover.WHISKY_CMD_RELATIVE)
+        self.save(app)
+        self.assertEqual(crossover.crossover_app(), app.resolve())
+        self.assertEqual(crossover.wine(), str(app.resolve()/crossover.WHISKY_CMD_RELATIVE))
+        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.frankea.Whisky/Bottles')
+
+    def test_legacy_whisky_bundle_uses_legacy_container(self):
+        app = self.app('Whisky Legacy.app', 'com.isaacmarovitz.Whisky', crossover.WHISKY_CMD_RELATIVE)
+        self.save(app)
+        self.assertEqual(crossover.bottle_root(), self.root/'Library/Containers/com.isaacmarovitz.Whisky/Bottles')
+
     def test_missing_saved_app_does_not_fall_back(self):
         self.save(self.root/'Removed.app')
-        with self.assertRaisesRegex(ValueError,'Choose CrossOver again'):
+        with self.assertRaisesRegex(ValueError,'Choose it again'):
             crossover.crossover_app()
 
     def test_unrelated_app_and_broken_wine_rejected(self):
-        with self.assertRaisesRegex(ValueError,'not CrossOver'):
+        with self.assertRaisesRegex(ValueError,'not CrossOver or Whisky'):
             crossover.validate_app(self.app('Other.app','org.other.app'))
         app=self.app(); (app/crossover.WINE_RELATIVE).chmod(0o644)
-        with self.assertRaisesRegex(ValueError,'missing its Wine executable'):
+        with self.assertRaisesRegex(ValueError,'missing its runtime executable'):
             crossover.validate_app(app)
 
     def test_malformed_preference_requires_reselection(self):

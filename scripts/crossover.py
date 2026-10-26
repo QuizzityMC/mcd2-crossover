@@ -1,26 +1,70 @@
-"""Resolve the user's CrossOver installation without starting it."""
+"""Resolve the user's CrossOver or Whisky installation without starting it."""
 import json
 import os
 import plistlib
 from pathlib import Path
 
 WINE_RELATIVE = 'Contents/SharedSupport/CrossOver/bin/wine'
+WHISKY_CMD_RELATIVE = 'Contents/Resources/WhiskyCmd'
+RUNTIMES = {
+    'com.codeweavers.CrossOver': (WINE_RELATIVE,),
+    'com.frankea.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
+    'com.isaacmarovitz.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
+}
+BOTTLE_ROOTS = {
+    'com.codeweavers.CrossOver': ('Library', 'Application Support', 'CrossOver', 'Bottles'),
+    'com.frankea.Whisky': ('Library', 'Containers', 'com.frankea.Whisky', 'Bottles'),
+    'com.isaacmarovitz.Whisky': ('Library', 'Containers', 'com.isaacmarovitz.Whisky', 'Bottles'),
+}
+
+
+def _resolve_runtime(app, identifier):
+    for relative in RUNTIMES.get(identifier, ()):
+        executable = app / relative
+        if executable.is_file() and os.access(executable, os.X_OK):
+            return executable
+    return None
+
+
+def _identifier(app):
+    with (app / 'Contents/Info.plist').open('rb') as stream:
+        info = plistlib.load(stream)
+    return info.get('CFBundleIdentifier') if isinstance(info, dict) else None
 
 
 def validate_app(path):
     app = Path(path).expanduser().resolve()
     try:
-        with (app / 'Contents/Info.plist').open('rb') as stream:
-            info = plistlib.load(stream)
-            identifier = info.get('CFBundleIdentifier') if isinstance(info, dict) else None
-        if identifier != 'com.codeweavers.CrossOver':
-            raise ValueError('The selected app is not CrossOver.')
-        wine = app / WINE_RELATIVE
-        if not wine.is_file() or not os.access(wine, os.X_OK):
-            raise ValueError('The selected CrossOver app is missing its Wine executable.')
+        identifier = _identifier(app)
+        if identifier not in RUNTIMES:
+            raise ValueError('The selected app is not CrossOver or Whisky.')
+        runtime = _resolve_runtime(app, identifier)
+        if runtime is None:
+            raise ValueError('The selected app is missing its runtime executable.')
     except (OSError, plistlib.InvalidFileException) as error:
-        raise ValueError(f'Cannot read the selected CrossOver app: {app}. Choose CrossOver again.') from error
+        raise ValueError(f'Cannot read the selected app: {app}. Choose it again.') from error
     return app
+
+
+def _wine_executable(app):
+    identifier = _identifier(app)
+    runtime = _resolve_runtime(app, identifier)
+    if runtime is None:
+        raise ValueError('The selected app is missing its runtime executable.')
+    return runtime
+
+
+def bottle_root(app=None):
+    if app is None:
+        selected = crossover_app()
+    else:
+        try:
+            selected = validate_app(app)
+        except ValueError:
+            return Path.home().joinpath(*BOTTLE_ROOTS['com.codeweavers.CrossOver'])
+    identifier = _identifier(selected)
+    relative = BOTTLE_ROOTS.get(identifier, BOTTLE_ROOTS['com.codeweavers.CrossOver'])
+    return Path.home().joinpath(*relative)
 
 
 def crossover_app():
@@ -37,7 +81,7 @@ def crossover_app():
         # Never silently launch a different installation if a saved one moved.
         return validate_app(selected)
     for directory in (Path('/Applications'), Path.home() / 'Applications'):
-        candidates = [directory / 'CrossOver.app', *sorted(directory.glob('*.app'))]
+        candidates = [directory / 'CrossOver.app', directory / 'Whisky.app', *sorted(directory.glob('*.app'))]
         for candidate in candidates:
             try:
                 return validate_app(candidate)
@@ -47,4 +91,4 @@ def crossover_app():
 
 
 def wine():
-    return str(crossover_app() / WINE_RELATIVE)
+    return str(_wine_executable(crossover_app()))
