@@ -8,12 +8,12 @@ WINE_RELATIVE = 'Contents/SharedSupport/CrossOver/bin/wine'
 WHISKY_CMD_RELATIVE = 'Contents/Resources/WhiskyCmd'
 RUNTIMES = {
     'com.codeweavers.CrossOver': (WINE_RELATIVE,),
-    'com.franke.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
+    'com.frankea.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
     'com.isaacmarovitz.Whisky': (WINE_RELATIVE, WHISKY_CMD_RELATIVE),
 }
 BOTTLE_ROOTS = {
     'com.codeweavers.CrossOver': ('Library', 'Application Support', 'CrossOver', 'Bottles'),
-    'com.franke.Whisky': ('Library', 'Containers', 'com.franke.Whisky', 'Bottles'),
+    'com.frankea.Whisky': ('Library', 'Containers', 'com.frankea.Whisky', 'Bottles'),
     'com.isaacmarovitz.Whisky': ('Library', 'Containers', 'com.isaacmarovitz.Whisky', 'Bottles'),
 }
 
