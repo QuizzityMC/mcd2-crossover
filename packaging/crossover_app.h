@@ -1,9 +1,9 @@
 // Discover by bundle identity, not the app's filename. Do not execute candidates.
 static BOOL MCD2IsSupportedRuntimeIdentifier(NSString *identifier) {
-    return [identifier isEqual:@"com.codeweavers.CrossOver"] || [identifier isEqual:@"com.franke.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"];
+    return [identifier isEqual:@"com.codeweavers.CrossOver"] || [identifier isEqual:@"com.frankea.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"];
 }
 static NSString *MCD2BottleRootForIdentifier(NSString *identifier) {
-    if ([identifier isEqual:@"com.franke.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"])
+    if ([identifier isEqual:@"com.frankea.Whisky"] || [identifier isEqual:@"com.isaacmarovitz.Whisky"])
         return [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/Containers/" stringByAppendingPathComponent:[identifier stringByAppendingPathComponent:@"/Bottles"]]];
     return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/CrossOver/Bottles"];
 }
@@ -50,7 +50,7 @@ static NSString *MCD2FindCrossOver(NSString *supportPath) {
     }
     NSURL *registered = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@"com.codeweavers.CrossOver"];
     if (registered && !MCD2CrossOverError(registered.path)) return registered.path;
-    for (NSString *identifier in @[@"com.franke.Whisky",@"com.isaacmarovitz.Whisky"]) {
+    for (NSString *identifier in @[@"com.frankea.Whisky",@"com.isaacmarovitz.Whisky"]) {
         NSURL *candidate = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:identifier];
         if (candidate && !MCD2CrossOverError(candidate.path)) return candidate.path;
     }
